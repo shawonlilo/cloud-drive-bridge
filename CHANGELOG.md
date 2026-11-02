@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 — 2026-11-02 — CLI-FIRST (owner correction: "fix it, no gui")
+
+- **GUI dropped from the shipment.** The Tauri app is no longer built or distributed; `app/` stays in-tree as an unmaintained experiment. What ships: the `cdb` CLI binaries (Windows/macOS/Linux) — nothing else.
+- **End-to-end proof, in CI and locally:** `scripts/e2e-minio.sh` runs the real CLI against a real local S3 server (MinIO when present — upstream withdrew its binary distribution in 2025 — moto otherwise) asserting test → put (checksum verified) → ls → get (byte-compare) → rename → share link (actually fetched, byte-compare) → size → rm. **All steps pass.**
+- **Real bug found by the e2e and fixed:** the CLI rejected flags placed before the command (`cdb --bucket B test`). Flags now parse in any position.
+- Native engine unchanged from 0.2.x: in-process ureq + rustls + SigV4, StorageProvider trait, cdb-ffi, cdb-fuse, rclone only for desktop mounts.
+
 ## 0.2.1 — 2026-11-02
 
 - Fix: v0.2.0's desktop bundle filenames carried the old 0.1.0 version string (a minified tauri.conf.json escaped the version bump). Same native code as 0.2.0, correctly stamped. Supersedes v0.2.0.

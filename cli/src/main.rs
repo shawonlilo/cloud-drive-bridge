@@ -85,8 +85,33 @@ fn main() -> ExitCode {
         help();
         return ExitCode::SUCCESS;
     }
-    let cmd = argv[0].clone();
-    let o = match parse(&argv[1..]) {
+    // Flags may come before OR after the command (conventional CLI
+    // behaviour): the command is the first token that isn't a flag or
+    // a flag's value. Caught by the e2e suite — `cdb --bucket B test`
+    // used to fail with "unknown command '--provider'".
+    const VALUE_FLAGS: [&str; 6] = ["--profile", "--name", "--provider", "--bucket", "--region", "--endpoint"];
+    let mut cmd: Option<String> = None;
+    let mut remainder: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < argv.len() {
+        let a = &argv[i];
+        if cmd.is_none() && VALUE_FLAGS.contains(&a.as_str()) {
+            remainder.push(a.clone());
+            if i + 1 < argv.len() { remainder.push(argv[i + 1].clone()); i += 1; }
+        } else if cmd.is_none() && (a == "--from-keychain" || a == "--autostart") {
+            remainder.push(a.clone());
+        } else if cmd.is_none() {
+            cmd = Some(a.clone());
+        } else {
+            remainder.push(a.clone());
+        }
+        i += 1;
+    }
+    let cmd = match cmd {
+        Some(c) => c,
+        None => { help(); return ExitCode::SUCCESS; }
+    };
+    let o = match parse(&remainder) {
         Ok(o) => o,
         Err(e) => { eprintln!("error: {}", e); return ExitCode::FAILURE; }
     };

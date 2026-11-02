@@ -3,8 +3,8 @@
 ![Cloud Drive Bridge banner](assets/banner.webp)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-38BDF8.svg)](LICENSE)
-[![Platforms](https://img.shields.io/badge/Platforms-Windows%20·%20macOS%20·%20Linux%20·%20Debian%20·%20Android-F5B84C.svg)](#-download)
-[![Built with Rust + Tauri](https://img.shields.io/badge/Built%20with-Rust%20%2B%20Tauri%202-081120.svg)](#)
+[![Platforms](https://img.shields.io/badge/Platforms-Windows%20·%20macOS%20·%20Linux%20·%20Debian-38BDF8.svg)](#-download)
+[![Built with Rust](https://img.shields.io/badge/Built%20with-Rust-081120.svg)](#)
 [![Privacy](https://img.shields.io/badge/Privacy-BYOK%20·%20keys%20in%20your%20OS%20keychain%20only-3ED598.svg)](#-security--byok-done-right)
 
 **Cloud Drive Bridge is a free, open-source S3 drive mounter** ✨ — connect **any S3-compatible bucket** and use it like a local drive:
@@ -14,11 +14,13 @@
 - 🔑 **BYOK done right:** your keys live in your **OS keychain only** — never in a config file, never logged (rclone gets them via environment variables only)
 - 🛡️ **Mount watchdog** — auto-remounts with backoff when a mount drops (the fix for rclone's flaky reconnects)
 - 🔗 **Share links** with 1h / 24h / 7d expiry, 📌 **offline pins**, ⚡ a researched performance mount profile
-- 🆓 **The free Mountain Duck / RaiDrive / ExpanDrive alternative** — and a friendly **rclone GUI** for people who don't want the command line
+- 🆓 **The free Mountain Duck / RaiDrive / ExpanDrive alternative** — and a scriptable, honest **rclone companion CLI**
 
 > Built for makers, homelabbers, founders and teams who keep real work in cheap object storage and are tired of syncing whole buckets or paying $39–$99/year just to see them as a drive. **Use buckets you own or are authorized to access.**
 
 ---
+
+> **CLI-first (owner decision, 2026-11-02):** the Tauri GUI was dropped from the shipment — what ships is the proven `cdb` CLI, verified end-to-end against a real S3 server (proof below). The `app/` folder remains in-tree as an unmaintained experiment; the release factory does not build it and **no GUI or Android APK is distributed**.
 
 ## ✨ Features
 
@@ -43,7 +45,7 @@
 | Windows | **Cloud Files API (CfAPI)** — OneDrive-style sync root, placeholders, hydration on read. No kernel driver, no admin | WinFsp + rclone mount → drive letter; WebDAV fallback | 🔜 CfAPI provider: design + compilable callback contract in `windows-native/` ([NATIVE.md](NATIVE.md)) |
 | macOS | **File Provider extension** — Finder Locations, `~/Library/CloudStorage`, no kext, no reduced security (FSKit volume is the macOS 26 path) | macFUSE + rclone (FSKit backend requested on macOS 15.4+ / macFUSE 5) | 🔜 Design + UniFFI Swift bindings scaffold in `native/macos-fileprovider/` |
 | Linux | **Our own Rust FUSE filesystem** — unprivileged via fusermount3, no root | **cdb-fuse (native, read path)** + rclone mount (writable) | ✅ `cdb-fuse` compiles and implements readdir/lookup/read over the core trait; writable FUSE is the first v0.3 item |
-| Android | **DocumentsProvider (SAF)** — buckets as roots in every app's file picker, system URI grants, no root | Tauri app: browse + transfer on the **native in-process S3 client** | 🔜 Kotlin provider scaffold in `native/android-documentsprovider/` (not registered, honestly a v0.3 item) |
+| Android | **DocumentsProvider (SAF)** — buckets as roots in every app's file picker, system URI grants, no root | — (no Android build ships; the native core compiles for Android via cdb-ffi) | 🔜 Kotlin provider scaffold in `native/android-documentsprovider/` (not registered, honestly a v0.3 item) |
 | iOS | **File Provider extension** — Files app, on-demand download | — | 🔜 Roadmap v0.3 (needs the owner's Apple signing decision; no App Store promise) |
 | Android true kernel mount | ❌ Not possible without root | — | ❌ We will never fake it |
 
@@ -57,38 +59,37 @@ Roadmap beyond the native shells: **[ROADMAP.md](ROADMAP.md)** — rclone crypt 
 | | Cloud Drive Bridge | Mountain Duck / RaiDrive / ExpanDrive | rclone CLI |
 |---|---|---|---|
 | Price | **Free forever (MIT)** | $39–$99 / year or license | Free |
-| GUI | ✅ King-simple, 3 screens | ✅ | ❌ command line only |
+| Interface | ✅ scriptable CLI (GUI dropped by owner call — CLI-first) | ✅ GUI | ❌ command line only |
 | Source code | ✅ open | ❌ closed | ✅ open |
 | Keys storage | **OS keychain; rclone via env only** | App config | Plain-text config file |
 | Watchdog auto-remount | ✅ | ❌ | ❌ (manual remount) |
 | Windows no-driver fallback | ✅ WebDAV mode | ❌ | ❌ |
-| Android app | ✅ browse + transfer | ❌ | ⚠️ terminal only |
+| Android app | ❌ (native DocumentsProvider is roadmap, not shipped) | ❌ | ⚠️ terminal only |
 
-## 📥 Download
+## 📥 Download — the `cdb` CLI
 
-Grab the latest release for your platform:
+Grab the binary for your platform from the release assets, make it executable (`chmod +x`), and run it. That's the whole install.
 
 | Platform | File |
 |---|---|
-| Windows | `Cloud.Drive.Bridge_0.2.1_x64-setup.exe` or `.msi` |
-| macOS (Apple Silicon) | `Cloud.Drive.Bridge_0.2.1_aarch64.dmg` |
-| macOS (Intel) | `Cloud.Drive.Bridge_0.2.1_x64.dmg` |
-| Linux | `Cloud.Drive.Bridge_0.2.1_amd64.AppImage` or `.deb` (Debian/Ubuntu) |
-| Android | `cloud-drive-bridge-android.apk` (CI-signed, sideload) |
-| CLI only | `cdb-windows-x64.exe` · `cdb-macos-arm64` · `cdb-linux-x64` |
-| Docker | `docker build -t cloud-drive-bridge .` |
+| Windows (x64) | `cdb-windows-x64.exe` |
+| macOS (Apple Silicon) | `cdb-macos-arm64` |
+| Linux (x64) | `cdb-linux-x64` |
 
-Prerequisites for mounting: **rclone** (free, rclone.org/downloads) + your platform driver — **WinFsp** (Windows), **macFUSE** (macOS), **fuse3** (Linux). The app detects both and tells you exactly what to install if they're missing. **Browsing, transfers, tests and share links need nothing extra** — the native S3 client is built in, on every platform including Android. On Linux you can also mount with our own `cdb-fuse` (read path) and skip rclone entirely.
+Prerequisites for **mounting only**: **rclone** (free, rclone.org/downloads) + your platform driver — **WinFsp** (Windows), **macFUSE** (macOS), **fuse3** (Linux). Browsing, transfers, tests and share links need nothing extra — the native S3 client is built in. On Linux you can also mount with our own `cdb-fuse` (read path) and skip rclone entirely.
 
-iOS is planned (companion/File Provider mode), not yet released — we only list platforms you can actually download.
+### ✅ Proven end-to-end, not just unit-tested
+[`scripts/e2e-minio.sh`](scripts/e2e-minio.sh) runs the real CLI against a real local S3 server (MinIO when present — its upstream binary distribution was withdrawn in 2025 — moto otherwise) and asserts every step: **test → put (checksum verified) → ls → get (byte-compare) → rename → share link (actually fetched, byte-compare) → size → rm**. It runs in CI on every release:
+
+```
+E2E RESULT: ALL STEPS PASS ✅
+```
 
 ## 🚀 Quick start
 
-1. Install the app, rclone, and your platform driver (above).
-2. **Profiles** → add your bucket: provider, bucket name, region, endpoint, *your* access keys → **Save** (keys go to the keychain).
-3. **Test** — run the 5-point check (add the write probe if it's your bucket).
-4. **Mount** → pick a drive letter / folder → **🌉 MOUNT AS DRIVE**. Done — your bucket is a drive.
-5. Or stay in **Browser** to move files, copy a 🔗 share link, or 📌 pin a folder offline.
+1. Set your keys (env vars, or save them via a profile + `--from-keychain`): `export CDB_ACCESS_KEY_ID=... CDB_SECRET_ACCESS_KEY=...`
+2. **Test:** `cdb test --bucket my-bucket --provider r2 --endpoint https://<acct>.r2.cloudflarestorage.com` (add `--probe` for the write/delete check).
+3. **Use it:** `cdb ls / put / get / share` — or **mount:** install rclone + your platform driver, then `cdb mount X: --bucket my-bucket ...` and your bucket is a drive. 🌉
 
 ## 💻 CLI usage
 
@@ -131,4 +132,4 @@ rclone, WinFsp, macFUSE, FUSE/fuser, UniFFI, Tauri, Rust — plus RSAF, CloudMou
 
 MIT — free for everyone, forever. Built by [Shawon / Cyberspace Work](https://github.com/shawonlilo) as part of the OpenTools suite (Network Diagnostics · CleanReach · Cloud Drive Bridge · Opt-in Messaging).
 
-<sub>Keywords: mount S3 as drive · S3 drive mounter · cloud drive bridge · mount Cloudflare R2 as drive · Backblaze B2 drive · MinIO mount · Wasabi drive · free Mountain Duck alternative · RaiDrive alternative · ExpanDrive alternative · rclone GUI · S3 browser · mount object storage Windows macOS Linux Android</sub>
+<sub>Keywords: mount S3 as drive · S3 drive mounter · cloud drive bridge · mount Cloudflare R2 as drive · Backblaze B2 drive · MinIO mount · Wasabi drive · free Mountain Duck alternative · RaiDrive alternative · ExpanDrive alternative · rclone companion CLI · S3 browser · mount object storage Windows macOS Linux Android</sub>
