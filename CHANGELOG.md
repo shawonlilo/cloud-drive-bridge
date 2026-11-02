@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 — 2026-11-02 — CLI proven against REAL MinIO + asset expansion
+
+- **Real-MinIO end-to-end (not a mock):** MinIO's official binaries were withdrawn upstream (dl.min.io returns 410), so MinIO was built from source locally and the full flow ran against it: 5-point probe (write/delete true) → put (checksum verified) → ls → get (byte-identical) → rename → share (presigned URL really fetched, byte-identical) → size → rm → folder empty. **All steps pass** (transcript kept with the project records; `scripts/e2e-minio.sh` reproduces it — it prefers a real `minio` binary, moto is only the fallback).
+- **Two real SigV4 bugs found by MinIO and fixed** (AWS/moto tolerated both): (1) the `delimiter` query value must be %2F-encoded in the canonical query; (2) query values (prefix, continuation-token) must use a strict query encoder — `encode_key` keeps `/` for object paths, which is wrong for query strings. New `encode_query_value` + regression tests (19/19 unit tests).
+- **GUI moved to `gui-experimental/`** with an explicit "experimental, not in this release, not verified" note; out of the workspace and out of CI.
+- **Assets expanded:** macOS Intel CLI (`cdb-macos-x64`), `cdb-fuse-linux-x64` (native Linux engine binary), and `SHA256SUMS.txt` generated from the actual release assets.
+- cdb-fuse mount smoke in the build sandbox: honestly blocked — the VM has no /dev/fuse and no fusermount; the binary builds and reaches the mount call. Mount verification needs a real Linux host.
+
 ## 0.3.0 — 2026-11-02 — CLI-FIRST (owner correction: "fix it, no gui")
 
 - **GUI dropped from the shipment.** The Tauri app is no longer built or distributed; `app/` stays in-tree as an unmaintained experiment. What ships: the `cdb` CLI binaries (Windows/macOS/Linux) — nothing else.

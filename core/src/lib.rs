@@ -289,6 +289,24 @@ pub fn esc(s: &str) -> String {
 }
 
 /// Percent-encode an S3 key for a URL path (keeps `/` separators).
+/// Percent-encode a QUERY STRING value (SigV4 canonical form).
+/// Stricter than encode_key: `/` becomes %2F here. Strict servers
+/// (MinIO) reject signatures whose canonical query keeps a raw slash —
+/// AWS and moto tolerate it, which is why only the real-MinIO e2e
+/// caught this. Query values must use this encoder, never encode_key.
+pub fn encode_query_value(value: &str) -> String {
+    let mut out = String::new();
+    for b in value.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
 pub fn encode_key(key: &str) -> String {
     let mut out = String::new();
     for b in key.bytes() {
@@ -744,12 +762,12 @@ pub fn list_objects(
     token: &str,
 ) -> Result<Listing, String> {
     let mut q = format!(
-        "{}?list-type=2&delimiter=/&prefix={}",
+        "{}?list-type=2&delimiter=%2F&prefix={}",
         profile.bucket_url(),
-        encode_key(prefix)
+        encode_query_value(prefix)
     );
     if !token.is_empty() {
-        q.push_str(&format!("&continuation-token={}", encode_key(token)));
+        q.push_str(&format!("&continuation-token={}", encode_query_value(token)));
     }
     let o = s3_request(profile, secrets, "GET", &q, &[], None)?;
     expect_ok(&o)?;
@@ -762,8 +780,8 @@ pub fn list_all(profile: &Profile, secrets: &Secrets, prefix: &str) -> Result<Ve
     let mut out = Vec::new();
     let mut token = String::new();
     loop {
-        let mut q = format!("{}?list-type=2&prefix={}", profile.bucket_url(), encode_key(prefix));
-        if !token.is_empty() { q.push_str(&format!("&continuation-token={}", encode_key(&token))); }
+        let mut q = format!("{}?list-type=2&prefix={}", profile.bucket_url(), encode_query_value(prefix));
+        if !token.is_empty() { q.push_str(&format!("&continuation-token={}", encode_query_value(&token))); }
         let o = s3_request(profile, secrets, "GET", &q, &[], None)?;
         expect_ok(&o)?;
         let xml = String::from_utf8_lossy(&o.body).to_string();
@@ -1698,6 +1716,20 @@ mod tests {
         assert!(!auth.contains("test-secret-value"));
         let h2 = sigv4_headers(&aws_profile(), &secrets(), "GET", "https://s3.eu-west-1.amazonaws.com/my-bucket?list-type=2&prefix=", &sha256_hex(&[]), &[], &at);
         assert_eq!(h, h2); // deterministic at a fixed timestamp
+    }
+
+    #[test]
+    fn query_values_encode_slash_for_strict_servers() {
+        // Regression (real-MinIO e2e): prefix values in the QUERY must
+        // be %2F-encoded or MinIO rejects the signature, while object
+        // PATH encoding keeps slashes readable.
+        assert_eq!(encode_query_value("docs/"), "docs%2F");
+        assert_eq!(encode_query_value("a b&c"), "a%20b%26c");
+        assert_eq!(encode_key("docs/a b.txt"), "docs/a%20b.txt");
+        let at = ("20261102T120000Z".to_string(), "20261102".to_string());
+        let url = "https://s3.eu-west-1.amazonaws.com/b?delimiter=%2F&list-type=2&prefix=docs%2F";
+        let h = sigv4_headers(&aws_profile(), &secrets(), "GET", url, &sha256_hex(&[]), &[], &at);
+        assert!(h.iter().any(|(k, _)| k == "authorization"));
     }
 
     #[test]

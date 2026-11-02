@@ -86,3 +86,42 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
           bash scripts/e2e-minio.sh ./target/release/cdb
+
+  fuse:
+    name: cdb-fuse (Linux native engine)
+    needs: quality-gates
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build cdb-fuse
+        run: |
+          cargo build --release -p cdb-fuse --bin cdb-fuse
+          cp target/release/cdb-fuse cdb-fuse-linux-x64
+      - name: Attach cdb-fuse to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Cloud Drive Bridge ${{ github.ref_name }}
+          files: cdb-fuse-linux-x64
+          fail_on_unmatched_files: true
+
+  checksums:
+    name: checksums
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [cli, fuse, e2e]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Generate SHA256SUMS.txt from the release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir dl && cd dl
+          gh release download ${{ github.ref_name }} --repo ${{ github.repository }}
+          sha256sum * > ../SHA256SUMS.txt
+          cd ..
+          gh release upload ${{ github.ref_name }} SHA256SUMS.txt --repo ${{ github.repository }} --clobber

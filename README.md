@@ -20,7 +20,7 @@
 
 ---
 
-> **CLI-first (owner decision, 2026-11-02):** the Tauri GUI was dropped from the shipment — what ships is the proven `cdb` CLI, verified end-to-end against a real S3 server (proof below). The `app/` folder remains in-tree as an unmaintained experiment; the release factory does not build it and **no GUI or Android APK is distributed**.
+> **CLI-first (owner decision, 2026-11-02):** the Tauri GUI was dropped from the shipment — what ships is the proven `cdb` CLI, verified end-to-end against a real S3 server (proof below). The GUI experiment lives in `gui-experimental/` — clearly marked experimental, not built by the release factory, and **no GUI or Android APK is distributed**.
 
 ## ✨ Features
 
@@ -74,7 +74,10 @@ Grab the binary for your platform from the release assets, make it executable (`
 |---|---|
 | Windows (x64) | `cdb-windows-x64.exe` |
 | macOS (Apple Silicon) | `cdb-macos-arm64` |
+| macOS (Intel) | `cdb-macos-x64` |
 | Linux (x64) | `cdb-linux-x64` |
+| Linux native FUSE engine | `cdb-fuse-linux-x64` |
+| Checksums | `SHA256SUMS.txt` |
 
 Prerequisites for **mounting only**: **rclone** (free, rclone.org/downloads) + your platform driver — **WinFsp** (Windows), **macFUSE** (macOS), **fuse3** (Linux). Browsing, transfers, tests and share links need nothing extra — the native S3 client is built in. On Linux you can also mount with our own `cdb-fuse` (read path) and skip rclone entirely.
 

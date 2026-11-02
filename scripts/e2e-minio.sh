@@ -90,8 +90,10 @@ CDB_ARGS="--provider minio --endpoint $ENDPOINT --bucket $BUCKET --region $REGIO
 printf 'cloud-drive-bridge e2e payload — the quick brown fox\n' > "$WORK/payload.txt"
 printf 'cloud-drive-bridge e2e payload — the quick brown fox\n' > "$WORK/expected.txt"
 
-step "1. test connection"
-"$CDB" $CDB_ARGS test && pass "test" || fail "test"
+step "1. test connection (5-point check incl. write/delete probe)"
+OUT="$("$CDB" $CDB_ARGS test --probe 2>&1)" && echo "$OUT" || fail "test"
+echo "$OUT" | grep -q '"write":true' && echo "$OUT" | grep -q '"delete":true' \
+  && pass "5-point: reachable/auth/list/write/delete all true" || fail "5-point probe: $OUT"
 
 step "2. put (upload + checksum verification)"
 OUT="$("$CDB" $CDB_ARGS put "$WORK/payload.txt" docs/payload.txt 2>&1)" && echo "$OUT" || fail "put"
@@ -129,7 +131,7 @@ echo "$OUT" | grep -q "1 objects" && pass "size counts 1 object" || fail "size c
 step "8. rm"
 "$CDB" $CDB_ARGS rm docs/renamed.txt >/dev/null 2>&1 \
   && OUT="$("$CDB" $CDB_ARGS ls docs/ 2>&1)" && ! echo "$OUT" | grep -q "renamed.txt" \
-  && pass "rm" || fail "rm"
+  && echo "$OUT" | grep -q "0 item(s)" && pass "rm (folder empty after)" || fail "rm"
 
 echo
 if [ "$FAILED" -eq 0 ]; then echo "E2E RESULT: ALL STEPS PASS ✅"; else echo "E2E RESULT: FAILURES ❌"; exit 1; fi
