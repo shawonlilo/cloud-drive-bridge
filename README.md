@@ -20,7 +20,7 @@
 
 ---
 
-> **CLI-first (owner decision, 2026-11-02):** the Tauri GUI was dropped from the shipment — what ships is the proven `cdb` CLI, verified end-to-end against a real S3 server (proof below). The GUI experiment lives in `gui-experimental/` — clearly marked experimental, not built by the release factory, and **no GUI or Android APK is distributed**.
+> **v0.5.0 — the GUI is back, in V1 Essential Light** (the owner's suite-wide design pick from the approved Stitch set): the same proven engine, now with the warm off-white desktop app + Android browse/transfer app. The CLI below remains the verified core — the GUI wraps it, and the MinIO end-to-end proof still gates every release.
 
 ## ✨ Features
 
@@ -59,16 +59,26 @@ Roadmap beyond the native shells: **[ROADMAP.md](ROADMAP.md)** — rclone crypt 
 | | Cloud Drive Bridge | Mountain Duck / RaiDrive / ExpanDrive | rclone CLI |
 |---|---|---|---|
 | Price | **Free forever (MIT)** | $39–$99 / year or license | Free |
-| Interface | ✅ scriptable CLI (GUI dropped by owner call — CLI-first) | ✅ GUI | ❌ command line only |
+| Interface | ✅ GUI (V1 Essential Light) + scriptable CLI | ✅ GUI | ❌ command line only |
 | Source code | ✅ open | ❌ closed | ✅ open |
 | Keys storage | **OS keychain; rclone via env only** | App config | Plain-text config file |
 | Watchdog auto-remount | ✅ | ❌ | ❌ (manual remount) |
 | Windows no-driver fallback | ✅ WebDAV mode | ❌ | ❌ |
 | Android app | ❌ (native DocumentsProvider is roadmap, not shipped) | ❌ | ⚠️ terminal only |
 
-## 📥 Download — the `cdb` CLI
+## 📥 Download
 
-Grab the binary for your platform from the release assets, make it executable (`chmod +x`), and run it. That's the whole install.
+**Desktop app (V1 Essential Light GUI):**
+
+| Platform | File |
+|---|---|
+| Windows (x64) | `Cloud.Drive.Bridge_0.5.0_x64-setup.exe` or `Cloud.Drive.Bridge_0.5.0_x64_en-US.msi` |
+| macOS (Apple Silicon) | `Cloud.Drive.Bridge_0.5.0_aarch64.dmg` |
+| macOS (Intel) | `Cloud.Drive.Bridge_0.5.0_x64.dmg` |
+| Linux | `Cloud.Drive.Bridge_0.5.0_amd64.AppImage` or `Cloud.Drive.Bridge_0.5.0_amd64.deb` |
+| Android | `cloud-drive-bridge-android.apk` (browse + transfer, CI-signed, sideload) |
+
+**CLI (`cdb`)** — grab the binary for your platform, make it executable (`chmod +x`), and run it:
 
 | Platform | File |
 |---|---|

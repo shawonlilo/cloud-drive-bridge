@@ -1,6 +1,6 @@
 [package]
 name = "cdb-core"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 license = "MIT"
 description = "Cloud Drive Bridge core engine: native in-process S3 client (ureq + rustls + hand-rolled SigV4), StorageProvider trait, rclone mount orchestration for desktop (credentials via environment only), OS-keychain BYOK storage."

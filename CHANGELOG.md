@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 — 2026-11-02 — GUI returns in V1 Essential Light 🤍
+
+- **Owner pick executed:** the desktop GUI is back, restyled to the approved **V1 Essential Light** design from the Stitch set (project 12348950776923825852): warm off-white #FAF9F6 surfaces, white cards with soft depth, deep ink #0F172A, sky accent #0284C7, teal success — sidebar layout per the Stitch V1 screen. Same screens, same commands, same proven engine; only the design layer changed. No Stitch mock claims shipped (no invented SOC2/audit/kill-switch copy).
+- The GUI wraps cdb-core unchanged: profiles with OS-keychain keys, bucket browser, mount controls (no-root paths), share links, watchdog status.
+- Android app (browse + transfer on the native client) returns via the CI lane; the APK is listed only because it is verified on this release page.
+- Everything from Phase A stands: real-MinIO e2e green, 19/19 unit tests, CLI x4 + cdb-fuse + SHA256SUMS.txt.
+
 ## 0.4.1 — 2026-11-02
 
 - Fix: the v0.4.0 workflow's macOS-x64 matrix patch silently failed to apply (string mismatch against the real job text), so no `cdb-macos-x64` was built. Matrix fixed against the actual file; this release's factory produces all four CLI binaries + cdb-fuse + checksums.

@@ -1,33 +1,41 @@
 ---
 name: Cloud Drive Bridge
-version: 0.1.0
+version: 0.5.0
 colors:
-  bg: "#081120"
-  surface: "#0E1B30"
-  surface2: "#14263F"
-  border: "#22385A"
-  text: "#EAF4FF"
-  muted: "#93A9C4"
-  accent: "#38BDF8"
-  accent-dim: "#1D6E96"
-  deep: "#0B2A4A"
-  warn: "#F5B84C"
-  danger: "#F26D6D"
-  ok: "#3ED598"
+  # V1 Essential Light (owner pick 2026-11-02, from the approved Stitch
+  # set, project 12348950776923825852): warm off-white, NOT plain white.
+  bg: "#FAF9F6"
+  surface: "#FFFFFF"
+  surface2: "#F8FAFC"
+  border: "#E2E8F0"
+  text: "#0F172A"
+  muted: "#64748B"
+  accent: "#0284C7"
+  accent-dim: "#0369A1"
+  accent-light: "#E0F2FE"
+  navy: "#081120"
+  sky: "#38BDF8"
+  teal: "#3ED598"
+  warn: "#F59E0B"
+  danger: "#EF4444"
+  ok: "#10B981"
 typography:
-  font-family: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+  font-family: "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
   base-size: "15px"
   mono: "ui-monospace, 'Cascadia Mono', Consolas, monospace"
 spacing:
   unit: 8px
-  radius: 12px
+  radius: 14px
 ---
 
 # Cloud Drive Bridge — design direction
 
-**One generator direction (taste-skill / hallmark layering):** a deep-navy
-harbour at night, crossed by a single sky-cyan bridge arc. The arc is the
-product: your bucket, on your desktop, as a drive. No purple/blue AI glow,
+**GUI theme (v0.5.0): V1 Essential Light** — the owner's suite-wide pick
+from the approved Stitch designs. Warm off-white surfaces (#FAF9F6),
+white cards with soft depth, deep ink text, sky accent, teal success;
+deep navy survives in the logo, the sidebar brand and the primary
+action gradient. The earlier deep-navy dark theme (v0.1–v0.2) is
+retired. No purple/blue AI glow,
 no glass, no stock photos. Colour means things:
 
 - **Sky cyan `#38BDF8`** = the bridge — connect, mount, the primary action.

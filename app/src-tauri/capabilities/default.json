@@ -1,0 +1,1 @@
+{"$schema":"../gen/schemas/desktop-schema.json","description":"Default window permissions. The app needs no shell or network permissions of its own — S3 work happens inside cdb-core's native client; rclone is only the optional desktop mount engine.","identifier":"default","permissions":["core:default"],"windows":["main"]}
