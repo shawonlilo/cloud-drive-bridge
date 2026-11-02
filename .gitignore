@@ -1,0 +1,9 @@
+/target/
+**/target/
+*.log
+.DS_Store
+# Never commit keys, rclone configs or profile exports
+*.env
+rclone.conf
+profiles.json
+pins.json

@@ -1,0 +1,16 @@
+[package]
+name = "cdb-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Cloud Drive Bridge core engine: S3-compatible browsing/transfers via system curl SigV4, rclone mount orchestration (credentials via environment only), OS-keychain BYOK storage."
+
+[lib]
+name = "cdb_core"
+path = "src/lib.rs"
+
+# OS keychain on desktop platforms only. Mobile targets use the
+# memory-only store in cdb_core::keychain (never writes secrets to disk)
+# until the native Android Keystore / iOS Keychain modules land.
+[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+keyring = "3"

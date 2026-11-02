@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloud Drive Bridge — Mount S3 as a Drive</title>
+<style>
+  :root{
+    --bg:#081120; --surface:#0E1B30; --surface2:#14263F; --border:#22385A;
+    --text:#EAF4FF; --muted:#93A9C4; --accent:#38BDF8; --accent-dim:#1D6E96;
+    --warn:#F5B84C; --danger:#F26D6D; --ok:#3ED598;
+    --radius:12px; --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);font-size:15px}
+  header{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--border);background:var(--surface)}
+  header img{width:42px;height:42px;border-radius:10px}
+  header h1{font-size:19px;margin:0}
+  header .tag{color:var(--muted);font-size:12.5px;margin-top:1px}
+  header .free{margin-left:auto;background:var(--surface2);border:1px solid var(--accent-dim);color:var(--accent);padding:5px 11px;border-radius:999px;font-size:12px;font-weight:600}
+  nav{display:flex;gap:6px;padding:10px 20px 0;flex-wrap:wrap}
+  nav button{background:transparent;border:1px solid transparent;color:var(--muted);padding:8px 14px;border-radius:9px;cursor:pointer;font-size:14px;font-weight:600}
+  nav button.active{background:var(--surface2);color:var(--text);border-color:var(--border)}
+  main{padding:18px 20px 34px;max-width:1060px;margin:0 auto}
+  section{display:none} section.active{display:block}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:16px}
+  .card h2{margin:0 0 6px;font-size:16px}
+  .card p.hint{color:var(--muted);margin:0 0 12px;font-size:13.5px;line-height:1.55}
+  input[type=text],input[type=password],input[type=number],select,textarea{width:100%;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:9px;padding:11px;font-family:var(--mono);font-size:13.5px}
+  label{font-size:13px;color:var(--muted);display:block;margin:10px 0 5px}
+  .row{display:flex;gap:12px;flex-wrap:wrap}.row>*{flex:1;min-width:160px}
+  .hero-btn{background:var(--accent);color:#04263C;border:none;font-size:17px;font-weight:800;padding:15px 22px;border-radius:11px;cursor:pointer;width:100%}
+  .hero-btn:disabled{opacity:.55;cursor:wait}
+  .btn{background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:9px 14px;border-radius:9px;cursor:pointer;font-weight:600;font-size:13.5px}
+  .btn:hover{border-color:var(--accent-dim)}
+  .btn.danger{border-color:#6e2f2f;color:var(--danger)}
+  .btn.ok{border-color:#1d5c43;color:var(--ok)}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+  .chip{background:var(--surface2);border:1px solid var(--border);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer;color:var(--muted)}
+  .chip.active{color:#04263C;background:var(--accent);border-color:var(--accent);font-weight:700}
+  .profile{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--surface2);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .profile b{font-size:15px}.profile .meta{color:var(--muted);font-size:12.5px;font-family:var(--mono)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12.5px;text-transform:uppercase;letter-spacing:.5px;cursor:pointer}
+  td.mono{font-family:var(--mono);font-size:12.5px;word-break:break-all}
+  tr.item{cursor:pointer} tr.item:hover td{background:var(--surface2)}
+  .note{border-left:3px solid var(--warn);padding:9px 13px;background:var(--surface2);border-radius:0 9px 9px 0;color:var(--muted);font-size:13.5px;line-height:1.55}
+  .note.cyan{border-color:var(--accent)}
+  .ok{color:var(--ok)} .bad{color:var(--danger)} .warn-t{color:var(--warn)}
+  .switch{display:flex;align-items:center;gap:9px;margin-top:12px;font-size:14px;color:var(--text)}
+  .switch input{width:18px;height:18px;accent-color:var(--accent)}
+  .dots span{display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid var(--border);margin:0 6px 6px 0;font-size:12.5px;color:var(--muted)}
+  .dots span.y{color:var(--ok);border-color:#1d5c43}
+  .dots span.n{color:var(--danger);border-color:#6e2f2f}
+  #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--surface2);border:1px solid var(--accent-dim);color:var(--text);padding:10px 18px;border-radius:10px;display:none;font-size:14px;z-index:9;max-width:88vw}
+  footer{color:var(--muted);font-size:12.5px;text-align:center;padding:8px 20px 22px;line-height:1.6}
+  .crumb{font-family:var(--mono);font-size:13px;color:var(--accent);cursor:pointer}
+  img.thumb{width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--border)}
+</style>
+</head>
+<body>
+<header>
+  <img src="logo.png" alt="Cloud Drive Bridge logo">
+  <div>
+    <h1>Cloud Drive Bridge</h1>
+    <div class="tag">Your S3 bucket, as a local drive — S3 · R2 · B2 · MinIO · Wasabi &amp; more</div>
+  </div>
+  <span class="free">✨ FREE · OPEN SOURCE · BYOK</span>
+</header>
+
+<nav>
+  <button data-screen="profiles" class="active">🔑 Profiles</button>
+  <button data-screen="browser">📂 Browser</button>
+  <button data-screen="mount">🌉 Mount</button>
+</nav>
+
+<main>
+  <!-- PROFILES -->
+  <section id="profiles" class="active">
+    <div class="card">
+      <h2>Your buckets</h2>
+      <p class="hint">Add a bucket once. Your keys go to your <b>OS keychain</b> (Windows Credential Manager / macOS Keychain / Linux key store) — <b>never into a file, never logged</b>. Profile details below contain no secrets.</p>
+      <div id="profileList"></div>
+    </div>
+    <div class="card">
+      <h2>Add / update a profile</h2>
+      <div class="row">
+        <div><label>Profile name (letters, numbers, - _)</label><input type="text" id="pName" placeholder="my-r2"></div>
+        <div><label>Provider</label><select id="pProvider"></select></div>
+      </div>
+      <div class="row">
+        <div><label>Bucket name</label><input type="text" id="pBucket" placeholder="my-bucket"></div>
+        <div><label>Region</label><input type="text" id="pRegion" placeholder="(provider default)"></div>
+      </div>
+      <label>Endpoint URL — fill the provider template (R2 needs your account id, Oracle your namespace, MinIO/Custom your server URL)</label>
+      <input type="text" id="pEndpoint" placeholder="https://…">
+      <div class="row">
+        <div><label>Access key ID (your own — BYOK)</label><input type="text" id="pAccess" autocomplete="off"></div>
+        <div><label>Secret access key</label><input type="password" id="pSecret" autocomplete="off"></div>
+      </div>
+      <div style="height:14px"></div>
+      <button class="hero-btn" id="saveProfileBtn">🔑 SAVE PROFILE — KEYS TO KEYCHAIN</button>
+      <div id="testResult" style="margin-top:14px"></div>
+    </div>
+  </section>
+
+  <!-- BROWSER -->
+  <section id="browser">
+    <div class="card">
+      <h2>Browse your bucket</h2>
+      <p class="hint">Pick a profile, navigate folders, transfer files, copy a share link, or pin things offline. On Android this screen <b>is</b> the product — browse + transfer (a true mount needs root, so we don't fake one).</p>
+      <div class="row">
+        <div><label>Profile</label><select id="bProfile"></select></div>
+        <div><label>Filter this folder</label><input type="text" id="bFilter" placeholder="type to filter instantly…"></div>
+      </div>
+      <div style="margin:12px 0">
+        <span class="crumb" id="crumbRoot">🏠 root</span> <span class="mono" id="crumbPath" style="color:var(--muted)"></span>
+        <span style="float:right"><button class="btn" id="sizeBtn">📊 Bucket usage</button> <button class="btn" id="mkdirBtn">➕ New folder</button> <button class="btn" id="uploadBtn">⬆️ Upload file…</button></span>
+      </div>
+      <div id="usageLine" class="hint" style="color:var(--muted);font-size:13px"></div>
+      <div style="overflow:auto;max-height:430px">
+        <table><thead><tr><th data-sort="name">Name</th><th data-sort="size">Size</th><th data-sort="date">Modified</th><th>Class</th><th>Actions</th></tr></thead><tbody id="listBody"></tbody></table>
+      </div>
+      <input type="file" id="filePicker" style="display:none">
+      <div class="note cyan" style="margin-top:12px">⬆️ Uploads verify the checksum after transfer: a plain ETag is compared to the file MD5. <b>Multipart ETags are not a plain MD5</b> — for those we say so and check size only. No silent "verified".</div>
+    </div>
+    <div class="card">
+      <h2>📌 Pinned offline</h2>
+      <p class="hint">Pinning warms the rclone VFS cache (or the app offline cache when unmounted) so pinned files open fast and survive short offline periods. Pins are managed by the app, in preference order over normal cache.</p>
+      <div id="pinList" class="chips"></div>
+    </div>
+  </section>
+
+  <!-- MOUNT -->
+  <section id="mount">
+    <div class="card">
+      <h2>Mount as a drive 🌉</h2>
+      <p class="hint">Desktop power feature: your bucket becomes a drive letter (Windows) or a folder (macOS/Linux) that every app can use. Mount engine: <b>rclone</b>, configured through environment variables only — it never writes your keys to a config file either.</p>
+      <div id="driverLine" class="note" style="margin-bottom:14px">Checking drivers…</div>
+      <div class="row">
+        <div><label>Profile</label><select id="mProfile"></select></div>
+        <div><label id="targetLabel">Drive letter / mount folder</label><input type="text" id="mTarget" value="S:"></div>
+      </div>
+      <div class="row">
+        <div><label>Cache max size</label><input type="text" id="mCache" value="5G"></div>
+        <div><label>Bandwidth limit (0 = unlimited, e.g. 10M)</label><input type="text" id="mBw" value="0"></div>
+      </div>
+      <label class="switch"><input type="checkbox" id="mReadOnly"> Read-only mount (safer for shared buckets)</label>
+      <label class="switch"><input type="checkbox" id="mOffline"> Offline mode — keep folder listings cached for 1000h</label>
+      <label class="switch"><input type="checkbox" id="mAuto"> Auto-mount on login (creates the OS startup hook for this profile)</label>
+      <div style="height:14px"></div>
+      <button class="hero-btn" id="mountBtn">🌉 MOUNT AS DRIVE</button>
+      <div class="row" style="margin-top:12px">
+        <button class="btn danger" id="unmountBtn">⏏️ Unmount</button>
+        <button class="btn" id="webdavBtn">🌐 WebDAV mode instead (no driver needed)</button>
+      </div>
+      <div id="mountStatus" style="margin-top:14px;font-size:14px"></div>
+      <div class="note" style="margin-top:14px">🛡️ <b>Watchdog:</b> if the mount process dies or the drive stops answering, Cloud Drive Bridge remounts it automatically with backoff (5s → 60s). That fixes rclone's known flaky reconnect-after-sleep behaviour. Performance profile baked in: VFS cache <i>full</i>, 128M buffers/chunks, 4 transfers, 8 checkers, 12h directory cache.</div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Cloud Drive Bridge — free &amp; open source (MIT) · Mount engine: rclone · Drivers: WinFsp / macFUSE / FUSE3<br>
+  Android = browse + transfer · iOS = roadmap (File Provider) · Use buckets you own or are authorized to access.
+</footer>
+<div id="toast"></div>
+
+<script>
+const invoke = window.__TAURI__ ? window.__TAURI__.core.invoke : null;
+let profiles = [], currentProfile = null, currentPrefix = "", items = [], sortKey = "name", sortDir = 1;
+const $ = id => document.getElementById(id);
+function toast(msg, ms=4200){ const t=$("toast"); t.textContent=msg; t.style.display="block"; setTimeout(()=>t.style.display="none", ms); }
+async function call(cmd, args){ if(!invoke){ toast("Tauri bridge unavailable in preview"); throw new Error("no tauri"); } return invoke(cmd, args||{}); }
+function fmtSize(n){ if(n==null) return "-"; const u=["B","KB","MB","GB","TB"]; let v=n,i=0; while(v>=1024&&i<4){v/=1024;i++} return v.toFixed(1)+" "+u[i]; }
+function esc(s){ return String(s??"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.remove("active")); b.classList.add("active");
+  document.querySelectorAll("main section").forEach(s=>s.classList.remove("active"));
+  $(b.dataset.screen).classList.add("active");
+  if(b.dataset.screen==="mount") refreshMount();
+});
+
+async function loadProviders(){
+  try{ const list = JSON.parse(await call("list_providers"));
+    $("pProvider").innerHTML = list.map(p=>`<option value="${p.id}" data-ep="${esc(p.endpoint_template)}" data-region="${esc(p.region)}">${esc(p.label)}</option>`).join("");
+    syncEndpoint();
+  }catch(e){}
+}
+function syncEndpoint(){
+  const o = $("pProvider").selectedOptions[0]; if(!o) return;
+  if(!$("pEndpoint").value) $("pEndpoint").placeholder = o.dataset.ep || "https://…";
+  if(!$("pRegion").value) $("pRegion").placeholder = o.dataset.region || "";
+}
+$("pProvider").onchange = syncEndpoint;
+
+async function loadProfiles(){
+  try{ profiles = JSON.parse(await call("get_profiles")); }catch(e){ profiles = []; }
+  const opts = profiles.map(p=>`<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("");
+  $("bProfile").innerHTML = opts; $("mProfile").innerHTML = opts;
+  $("profileList").innerHTML = profiles.length ? profiles.map(p=>`
+    <div class="profile"><b>${esc(p.name)}</b><span class="meta">${esc(p.provider)} · ${esc(p.bucket)} · ${esc(p.region)}</span>
+    <span style="margin-left:auto">
+      <button class="btn ok" onclick="testProfile('${esc(p.name)}',false)">🔍 Test</button>
+      <button class="btn" onclick="testProfile('${esc(p.name)}',true)">🧪 Test + write probe</button>
+      <button class="btn danger" onclick="delProfile('${esc(p.name)}')">Delete</button>
+    </span></div>`).join("")
+    : `<p class="hint">No profiles yet — add your first bucket below. It takes about a minute. 🎉</p>`;
+  if(profiles.length && !currentProfile){ currentProfile = profiles[0].name; $("bProfile").value=currentProfile; refreshList(); }
+}
+window.delProfile = async n => { try{ toast(await call("delete_profile",{name:n})); loadProfiles(); }catch(e){ toast("❌ "+e); } };
+window.testProfile = async (n, probe) => {
+  $("testResult").innerHTML = "Testing… (the write probe uploads a tiny file and deletes it again)";
+  try{ const r = JSON.parse(await call("test_profile",{name:n, probe}));
+    const dot=(v,l)=>`<span class="${v?"y":"n"}">${v?"✅":"❌"} ${l}</span>`;
+    $("testResult").innerHTML = `<div class="dots">${dot(r.reachable,"Reachable")}${dot(r.auth,"Auth")}${dot(r.list,"List")}${dot(r.write,"Write")}${dot(r.delete,"Delete")}</div><p class="hint">${r.notes.map(esc).join("<br>")}</p>`;
+  }catch(e){ $("testResult").innerHTML = `<span class="bad">❌ ${esc(e)}</span>`; }
+};
+$("saveProfileBtn").onclick = async ()=>{
+  try{ const msg = await call("save_profile",{
+    name:$("pName").value, provider:$("pProvider").value, bucket:$("pBucket").value,
+    region:$("pRegion").value, endpoint:$("pEndpoint").value,
+    accessKey:$("pAccess").value, secretKey:$("pSecret").value });
+    $("pAccess").value=""; $("pSecret").value=""; toast("✅ "+msg); loadProfiles();
+  }catch(e){ toast("❌ "+e, 6000); }
+};
+
+// ------------------------------------------------------------- browser
+$("bProfile").onchange = ()=>{ currentProfile=$("bProfile").value; currentPrefix=""; refreshList(); };
+$("crumbRoot").onclick = ()=>{ currentPrefix=""; refreshList(); };
+$("bFilter").oninput = renderList;
+document.querySelectorAll("th[data-sort]").forEach(th=>th.onclick=()=>{
+  const k=th.dataset.sort; if(sortKey===k) sortDir*=-1; else {sortKey=k; sortDir=1;} renderList();
+});
+async function refreshList(){
+  if(!currentProfile){ return; }
+  $("crumbPath").textContent = currentPrefix ? "/ "+currentPrefix : "";
+  try{ const r = JSON.parse(await call("list_objects_cmd",{name:currentProfile, prefix:currentPrefix}));
+    items = r.items; renderList();
+  }catch(e){ toast("❌ "+e, 6000); $("listBody").innerHTML=""; }
+}
+function renderList(){
+  const f = $("bFilter").value.toLowerCase();
+  let rows = items.filter(it=>!f || it.name.toLowerCase().includes(f));
+  rows.sort((a,b)=>{ let x,y;
+    if(sortKey==="size"){x=a.size;y=b.size;} else if(sortKey==="date"){x=a.modified;y=b.modified;} else {x=a.name.toLowerCase();y=b.name.toLowerCase();}
+    return (x<y?-1:x>y?1:0)*sortDir; });
+  $("listBody").innerHTML = rows.map(it=>{
+    const isImg = /\.(png|jpe?g|gif|webp)$/i.test(it.name) && !it.folder;
+    return `<tr class="item" data-key="${esc(it.key)}" data-folder="${it.folder}">
+    <td>${it.folder?"📁":"📄"} ${esc(it.name)} ${isImg?'<span class="warn-t" title="Thumbnails load on demand in the desktop app">🖼️</span>':""}</td>
+    <td class="mono">${it.folder?"-":fmtSize(it.size)}</td><td class="mono">${esc(it.modified||"-")}</td>
+    <td class="mono">${esc(it.storage_class||"-")}</td>
+    <td>${it.folder
+      ? `<button class="btn" onclick="enterFolder('${esc(it.key)}')">Open</button>`
+      : `<button class="btn" onclick="dl('${esc(it.key)}')">⬇️</button>
+         <button class="btn" onclick="shareIt('${esc(it.key)}')">🔗 Share</button>
+         <button class="btn" onclick="pinIt('${esc(it.key)}')">📌 Pin</button>`}
+        <button class="btn" onclick="renameIt('${esc(it.key)}',${it.folder})">✏️</button>
+        <button class="btn danger" onclick="delIt('${esc(it.key)}')">🗑️</button></td></tr>`;
+  }).join("") || `<tr><td colspan="5" style="color:var(--muted)">Nothing here yet — upload something! 📤</td></tr>`;
+}
+window.enterFolder = k => { currentPrefix = k; refreshList(); };
+window.dl = async k => { try{ toast("✅ "+await call("download_cmd",{name:currentProfile,key:k}), 6000); }catch(e){ toast("❌ "+e,6000); } };
+window.delIt = async k => { if(!confirm("Delete "+k+" ?")) return; try{ toast(await call("delete_cmd",{name:currentProfile,key:k})); refreshList(); }catch(e){ toast("❌ "+e); } };
+window.renameIt = async (k) => { const to = prompt("New name (full key):", k); if(!to||to===k) return;
+  try{ toast(await call("rename_cmd",{name:currentProfile,from:k,to})); refreshList(); }catch(e){ toast("❌ "+e,6000); } };
+window.shareIt = async k => { const exp = prompt("Share link expiry: 1h, 24h or 7d","24h"); if(!exp) return;
+  try{ const url = await call("share_cmd",{name:currentProfile,key:k,expiry:exp});
+    try{ await navigator.clipboard.writeText(url); }catch(_){}
+    toast("🔗 Link copied — expires in "+exp+": "+url, 9000);
+  }catch(e){ toast("❌ "+e, 7000); } };
+window.pinIt = async k => { try{ toast("📌 "+await call("pin_cmd",{name:currentProfile,key:k}), 6000); loadPins(); }catch(e){ toast("❌ "+e,6000); } };
+$("mkdirBtn").onclick = async ()=>{ const n = prompt("Folder name:"); if(!n) return;
+  try{ toast(await call("mkdir_cmd",{name:currentProfile,prefix:currentPrefix+n})); refreshList(); }catch(e){ toast("❌ "+e); } };
+$("sizeBtn").onclick = async ()=>{ try{ const r = JSON.parse(await call("bucket_size_cmd",{name:currentProfile}));
+  $("usageLine").textContent = `📊 ${r.objects} objects · ${fmtSize(r.bytes)} total in this bucket`; }catch(e){ toast("❌ "+e); } };
+$("uploadBtn").onclick = ()=> $("filePicker").click();
+$("filePicker").onchange = async ev => {
+  const file = ev.target.files[0]; if(!file) return;
+  // In the Tauri shell, uploads run through a local path; browser file
+  // objects have no path, so ask for it — honest over magic.
+  const local = prompt("Local file path to upload:", file.name); if(!local) return;
+  try{ toast("✅ "+await call("upload_cmd",{name:currentProfile,localPath:local,key:currentPrefix+file.name}), 7000); refreshList(); }
+  catch(e){ toast("❌ "+e, 7000); }
+};
+async function loadPins(){
+  try{ const pins = JSON.parse(await call("get_pins"));
+    $("pinList").innerHTML = pins.length ? pins.map(k=>`<span class="chip">📌 ${esc(k)} <b onclick="unpinIt('${esc(k)}')" style="cursor:pointer">✕</b></span>`).join("") : `<span style="color:var(--muted);font-size:13px">No pins yet.</span>`;
+  }catch(e){}
+}
+window.unpinIt = async k => { try{ toast(await call("unpin_cmd",{key:k})); loadPins(); }catch(e){ toast("❌ "+e); } };
+
+// --------------------------------------------------------------- mount
+async function refreshMount(){
+  try{ const d = JSON.parse(await call("driver_info"));
+    $("driverLine").innerHTML = (d.rclone ? "" : "⚠️ <b>rclone not found</b> — install it free from rclone.org/downloads, it is the mount engine. ") + esc(d.message);
+    $("driverLine").style.borderColor = d.ok ? "var(--ok)" : "var(--warn)";
+  }catch(e){}
+  pollMount();
+}
+async function pollMount(){
+  try{ const s = JSON.parse(await call("mount_status"));
+    $("mountStatus").innerHTML = s.mounted
+      ? `<span class="ok">🟢 Mounted at ${esc(s.target)}</span> — mountpoint ${s.responsive?'<span class="ok">responding</span>':'<span class="warn-t">not responding (watchdog will act)</span>'}`
+      : (s.intended ? `<span class="warn-t">🟡 Watchdog is remounting… (failures: ${s.failures})</span>` : `<span style="color:var(--muted)">⚪ Not mounted</span>`);
+  }catch(e){}
+  if($("mount").classList.contains("active")) setTimeout(pollMount, 4000);
+}
+$("mountBtn").onclick = async ()=>{
+  const name = $("mProfile").value; if(!name){ toast("Add a profile first"); return; }
+  $("mountBtn").disabled = true;
+  try{ toast("✅ "+await call("mount_cmd",{ name, target:$("mTarget").value, cache:$("mCache").value,
+    bwlimit:$("mBw").value, readOnly:$("mReadOnly").checked, offline:$("mOffline").checked }), 7000);
+    if($("mAuto").checked){ try{ toast(await call("automount_cmd",{name, enable:true}), 7000); }catch(e){ toast("Auto-mount: "+e, 7000); } }
+  }catch(e){ toast("❌ "+e, 8000); }
+  $("mountBtn").disabled = false; pollMount();
+};
+$("unmountBtn").onclick = async ()=>{ try{ toast(await call("unmount_cmd"));
+  const name=$("mProfile").value; if(name && $("mAuto").checked){ $("mAuto").checked=false; try{ await call("automount_cmd",{name, enable:false}); }catch(e){} }
+  pollMount(); }catch(e){ toast("❌ "+e); } };
+$("webdavBtn").onclick = async ()=>{ const name=$("mProfile").value; if(!name){ toast("Add a profile first"); return; }
+  try{ toast("🌐 "+await call("webdav_cmd",{name}), 10000); }catch(e){ toast("❌ "+e, 8000); } };
+
+loadProviders(); loadProfiles(); loadPins();
+</script>
+</body>
+</html>
