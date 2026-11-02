@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 — 2026-11-02
+
+- Fix: the v0.4.0 workflow's macOS-x64 matrix patch silently failed to apply (string mismatch against the real job text), so no `cdb-macos-x64` was built. Matrix fixed against the actual file; this release's factory produces all four CLI binaries + cdb-fuse + checksums.
+
 ## 0.4.0 — 2026-11-02 — CLI proven against REAL MinIO + asset expansion
 
 - **Real-MinIO end-to-end (not a mock):** MinIO's official binaries were withdrawn upstream (dl.min.io returns 410), so MinIO was built from source locally and the full flow ran against it: 5-point probe (write/delete true) → put (checksum verified) → ls → get (byte-identical) → rename → share (presigned URL really fetched, byte-identical) → size → rm → folder empty. **All steps pass** (transcript kept with the project records; `scripts/e2e-minio.sh` reproduces it — it prefers a real `minio` binary, moto is only the fallback).

@@ -42,11 +42,21 @@ jobs:
             artifact: cdb-windows-x64
           - os: macos-latest
             artifact: cdb-macos-arm64
+          - os: macos-latest
+            artifact: cdb-macos-x64
+            target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: Build CLI
-        run: cargo build --release --bin cdb
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.target }}" ]; then
+            rustup target add ${{ matrix.target }}
+            cargo build --release --bin cdb --target ${{ matrix.target }}
+          else
+            cargo build --release --bin cdb
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -56,10 +66,12 @@ jobs:
       - name: Name the binary per-platform (avoids name collisions)
         shell: bash
         run: |
+          SRC="target/release/cdb"
+          if [ -n "${{ matrix.target }}" ]; then SRC="target/${{ matrix.target }}/release/cdb"; fi
           if [ -f target/release/cdb.exe ]; then
             cp target/release/cdb.exe "${{ matrix.artifact }}.exe"
           else
-            cp target/release/cdb "${{ matrix.artifact }}"
+            cp "$SRC" "${{ matrix.artifact }}"
           fi
       - name: Attach the CLI binary to the GitHub release
         if: startsWith(github.ref, 'refs/tags/')
