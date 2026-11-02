@@ -133,7 +133,8 @@ async fn list_objects_cmd(app: tauri::AppHandle, name: String, prefix: String) -
     let p = find_profile(&app, &name)?;
     let s = secrets_for(&p)?;
     let full_prefix = if prefix.is_empty() { p.prefix.clone() } else { prefix };
-    let l = tauri::async_runtime::spawn_blocking(move || list_objects(&p, &s, &full_prefix, ""))
+    let fp = full_prefix.clone();
+    let l = tauri::async_runtime::spawn_blocking(move || list_objects(&p, &s, &fp, ""))
         .await.map_err(|e| e.to_string())??;
     Ok(l.to_json(&full_prefix))
 }
@@ -175,27 +176,30 @@ async fn upload_cmd(app: tauri::AppHandle, name: String, local_path: String, key
 async fn delete_cmd(app: tauri::AppHandle, name: String, key: String) -> Result<String, String> {
     let p = find_profile(&app, &name)?;
     let s = secrets_for(&p)?;
+    let msg = format!("Deleted {}", key);
     tauri::async_runtime::spawn_blocking(move || delete_object(&p, &s, &key))
         .await.map_err(|e| e.to_string())??;
-    Ok(format!("Deleted {}", key))
+    Ok(msg)
 }
 
 #[tauri::command]
 async fn mkdir_cmd(app: tauri::AppHandle, name: String, prefix: String) -> Result<String, String> {
     let p = find_profile(&app, &name)?;
     let s = secrets_for(&p)?;
+    let msg = format!("Folder '{}' created", prefix);
     tauri::async_runtime::spawn_blocking(move || create_folder(&p, &s, &prefix))
         .await.map_err(|e| e.to_string())??;
-    Ok(format!("Folder '{}' created", prefix))
+    Ok(msg)
 }
 
 #[tauri::command]
 async fn rename_cmd(app: tauri::AppHandle, name: String, from: String, to: String) -> Result<String, String> {
     let p = find_profile(&app, &name)?;
     let s = secrets_for(&p)?;
+    let msg = format!("Renamed {} -> {}", from, to);
     tauri::async_runtime::spawn_blocking(move || rename_object(&p, &s, &from, &to))
         .await.map_err(|e| e.to_string())??;
-    Ok(format!("Renamed {} -> {}", from, to))
+    Ok(msg)
 }
 
 #[tauri::command]
