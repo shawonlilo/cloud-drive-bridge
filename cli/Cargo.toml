@@ -1,6 +1,6 @@
 [package]
 name = "cdb"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 description = "Cloud Drive Bridge CLI: test, browse, transfer, share and mount any S3-compatible bucket. Same cdb-core engine as the desktop/mobile app."

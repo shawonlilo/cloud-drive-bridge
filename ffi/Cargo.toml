@@ -1,0 +1,18 @@
+[package]
+name = "cdb-ffi"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "UniFFI bindings for cdb-core: generates Kotlin (Android DocumentsProvider) and Swift (Apple File Provider) bindings so native shells call the ONE Rust core."
+
+[lib]
+name = "cdb_ffi"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+uniffi = { version = "0.28", features = ["cli"] }
+cdb-core = { path = "../core" }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"

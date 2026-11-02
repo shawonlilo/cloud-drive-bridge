@@ -7,7 +7,7 @@ COPY cli ./cli
 RUN cargo build --release --bin cdb
 
 FROM alpine:3.20
-RUN apk add --no-cache curl ca-certificates && adduser -D cdb
+RUN adduser -D cdb
 COPY --from=build /src/target/release/cdb /usr/local/bin/cdb
 USER cdb
 ENTRYPOINT ["cdb"]

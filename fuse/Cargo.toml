@@ -1,0 +1,19 @@
+[package]
+name = "cdb-fuse"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "Linux NATIVE WAY for Cloud Drive Bridge: our own Rust FUSE filesystem (fuser) implementing cdb-core's StorageProvider trait directly against S3. Unprivileged mounts via fusermount3 — no root, no rclone."
+
+[lib]
+name = "cdb_fuse"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cdb-fuse"
+path = "src/main.rs"
+
+[dependencies]
+cdb-core = { path = "../core" }
+fuser = "0.16"
+libc = "0.2"

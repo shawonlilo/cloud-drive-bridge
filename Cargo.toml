@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["core", "cli"]
-default-members = ["core", "cli"]
+members = ["core", "cli", "ffi", "fuse", "windows-native"]
+default-members = ["core", "cli", "ffi", "fuse", "windows-native"]
 exclude = ["app/src-tauri"]
 # The Tauri app in app/ is its own workspace (see app/src-tauri/Cargo.toml).
 # It consumes the same cdb-core library through a path dependency.

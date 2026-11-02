@@ -1,13 +1,20 @@
 [package]
 name = "cdb-core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
-description = "Cloud Drive Bridge core engine: S3-compatible browsing/transfers via system curl SigV4, rclone mount orchestration (credentials via environment only), OS-keychain BYOK storage."
+description = "Cloud Drive Bridge core engine: native in-process S3 client (ureq + rustls + hand-rolled SigV4), StorageProvider trait, rclone mount orchestration for desktop (credentials via environment only), OS-keychain BYOK storage."
 
 [lib]
 name = "cdb_core"
 path = "src/lib.rs"
+
+[dependencies]
+# Native HTTPS transport — the network-diagnostics v0.3.2 lesson:
+# never shell out for a core operation (Android has no curl).
+ureq = { version = "2", features = ["tls"] }
+hmac = "0.12"
+sha2 = "0.10"
 
 # OS keychain on desktop platforms only. Mobile targets use the
 # memory-only store in cdb_core::keychain (never writes secrets to disk)

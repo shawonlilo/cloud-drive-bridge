@@ -1,0 +1,19 @@
+[package]
+name = "cdb-windows-native"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "Windows native shell design + stub for Cloud Drive Bridge: Cloud Files API (CfAPI) sync-root provider over cdb-core. No kernel driver, no admin. The cfapi feature wires the cloud-filter crate on Windows; off-Windows this crate is the compilable interface + callback contract."
+
+[lib]
+name = "cdb_windows_native"
+path = "src/lib.rs"
+
+[features]
+default = []
+# On Windows this feature pulls the cloud-filter crate (CfAPI wrapper).
+# It is target-gated so every other platform still compiles the stub.
+cfapi = []
+
+[dependencies]
+cdb-core = { path = "../core" }

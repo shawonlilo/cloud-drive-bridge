@@ -36,18 +36,21 @@
 | 🌐 WebDAV fallback | No WinFsp? `rclone serve webdav` on localhost + `net use` — no driver needed |
 | 💻 CLI included | `cdb test · ls · get · put · rm · mkdir · rename · size · share · mount` |
 
-## 🖥️ Platforms — honest status
+## 🖥️ Platforms — the native, no-root way
 
-| Platform | Status | How |
-|---|---|---|
-| Windows | ✅ Shipped in v0.1 | WinFsp + rclone → drive letter; WebDAV fallback without it |
-| macOS | ✅ Shipped in v0.1 | macFUSE (FSKit backend requested on macOS 15.4+ / macFUSE 5; classic backend + one-time approval on older setups) |
-| Linux / Debian | ✅ Shipped in v0.1 | FUSE3 native — best-supported platform |
-| Android | ✅ Shipped in v0.1 | Browse + transfer app. **No mount** — see below |
-| iOS | 🔜 Roadmap v0.3 | File Provider extension (needs Apple signing decision) |
-| Android true mount | ❌ Not possible without root | We will never fake it |
+| Platform | Native no-root way | v0.2 engine (shipping) | Native engine status |
+|---|---|---|---|
+| Windows | **Cloud Files API (CfAPI)** — OneDrive-style sync root, placeholders, hydration on read. No kernel driver, no admin | WinFsp + rclone mount → drive letter; WebDAV fallback | 🔜 CfAPI provider: design + compilable callback contract in `windows-native/` ([NATIVE.md](NATIVE.md)) |
+| macOS | **File Provider extension** — Finder Locations, `~/Library/CloudStorage`, no kext, no reduced security (FSKit volume is the macOS 26 path) | macFUSE + rclone (FSKit backend requested on macOS 15.4+ / macFUSE 5) | 🔜 Design + UniFFI Swift bindings scaffold in `native/macos-fileprovider/` |
+| Linux | **Our own Rust FUSE filesystem** — unprivileged via fusermount3, no root | **cdb-fuse (native, read path)** + rclone mount (writable) | ✅ `cdb-fuse` compiles and implements readdir/lookup/read over the core trait; writable FUSE is the first v0.3 item |
+| Android | **DocumentsProvider (SAF)** — buckets as roots in every app's file picker, system URI grants, no root | Tauri app: browse + transfer on the **native in-process S3 client** | 🔜 Kotlin provider scaffold in `native/android-documentsprovider/` (not registered, honestly a v0.3 item) |
+| iOS | **File Provider extension** — Files app, on-demand download | — | 🔜 Roadmap v0.3 (needs the owner's Apple signing decision; no App Store promise) |
+| Android true kernel mount | ❌ Not possible without root | — | ❌ We will never fake it |
 
-Full architecture + v0.2/v0.3 plan: **[ROADMAP.md](ROADMAP.md)** — including the Android SAF DocumentsProvider that will put buckets in *every* app's file picker (RSAF-proven), rclone crypt vaults, version restore, and two-way sync.
+### Why native?
+No root. No admin. No kernel drivers. No reduced security. One Rust core (`StorageProvider` trait: list · stat · read_range · write · delete · rename · presign) called by every shell — the S3 engine is **in-process (ureq + rustls + hand-rolled SigV4)** and identical on every platform, Android included. The v0.1 subprocess design was killed for exactly the reason network-diagnostics v0.3.2 documented: shelling out is how apps die on mobile. Full architecture: **[NATIVE.md](NATIVE.md)**.
+
+Roadmap beyond the native shells: **[ROADMAP.md](ROADMAP.md)** — rclone crypt vaults, version restore, two-way sync, bandwidth scheduler.
 
 ## ⚖️ Cloud Drive Bridge vs the alternatives
 
@@ -67,15 +70,15 @@ Grab the latest release for your platform:
 
 | Platform | File |
 |---|---|
-| Windows | `Cloud.Drive.Bridge_0.1.0_x64-setup.exe` or `.msi` |
-| macOS (Apple Silicon) | `Cloud.Drive.Bridge_0.1.0_aarch64.dmg` |
-| macOS (Intel) | `Cloud.Drive.Bridge_0.1.0_x64.dmg` |
-| Linux | `Cloud.Drive.Bridge_0.1.0_amd64.AppImage` or `.deb` (Debian/Ubuntu) |
+| Windows | `Cloud.Drive.Bridge_0.2.0_x64-setup.exe` or `.msi` |
+| macOS (Apple Silicon) | `Cloud.Drive.Bridge_0.2.0_aarch64.dmg` |
+| macOS (Intel) | `Cloud.Drive.Bridge_0.2.0_x64.dmg` |
+| Linux | `Cloud.Drive.Bridge_0.2.0_amd64.AppImage` or `.deb` (Debian/Ubuntu) |
 | Android | `cloud-drive-bridge-android.apk` (CI-signed, sideload) |
 | CLI only | `cdb-windows-x64.exe` · `cdb-macos-arm64` · `cdb-linux-x64` |
 | Docker | `docker build -t cloud-drive-bridge .` |
 
-Prerequisites for mounting: **rclone** (free, rclone.org/downloads) + your platform driver — **WinFsp** (Windows), **macFUSE** (macOS), **fuse3** (Linux). The app detects both and tells you exactly what to install if they're missing. Browsing and transfers need only **curl** (built into Windows 10+, macOS and Linux).
+Prerequisites for mounting: **rclone** (free, rclone.org/downloads) + your platform driver — **WinFsp** (Windows), **macFUSE** (macOS), **fuse3** (Linux). The app detects both and tells you exactly what to install if they're missing. **Browsing, transfers, tests and share links need nothing extra** — the native S3 client is built in, on every platform including Android. On Linux you can also mount with our own `cdb-fuse` (read path) and skip rclone entirely.
 
 iOS is planned (companion/File Provider mode), not yet released — we only list platforms you can actually download.
 
@@ -104,7 +107,7 @@ cdb mount S: --bucket my-bucket --provider aws --cache 10G --offline
 ## 🔒 Security — BYOK done right
 
 - **Your keys, your machine.** Secrets are stored in the OS keychain (Windows Credential Manager / macOS Keychain / Linux key store). On mobile v0.1 they are kept **in memory only**.
-- **No credential files, ever.** rclone is configured exclusively through `RCLONE_CONFIG_<NAME>_*` environment variables; S3 calls go through system `curl --aws-sigv4`. Nothing secret is written to disk or logged — the `Secrets` type can't even print itself.
+- **No credential files, ever.** rclone is configured exclusively through `RCLONE_CONFIG_<NAME>_*` environment variables; S3 calls run in-process over TLS (rustls) with SigV4 signatures computed in the app. Nothing secret is written to disk or logged — the `Secrets` type can't even print itself.
 - **Least privilege:** create a bucket-scoped IAM key for this app. The 5-point write probe is opt-in and deletes its probe file.
 - Rebuilt from the author's original Python script with a full pre-publish credential sweep (zero hits).
 
@@ -113,7 +116,7 @@ cdb mount S: --bucket my-bucket --provider aws --cache 10G --offline
 ```
 Profile (bucket + endpoint) ─► keys from OS keychain
         │
-        ├─► Browse/transfer: cdb-core ─► curl --aws-sigv4 ─► S3 API (ListObjectsV2 XML parsed in Rust)
+        ├─► Browse/transfer/test/share: cdb-core ─► native client (ureq + rustls + SigV4) ─► S3 API
         │
         └─► Mount: rclone mount (env-only config) ─► WinFsp / macFUSE / FUSE3 ─► drive letter / folder
                     ▲ watchdog: health check ─► auto-remount with backoff
@@ -122,7 +125,7 @@ Profile (bucket + endpoint) ─► keys from OS keychain
 
 ## 🙏 Thanks
 
-rclone, WinFsp, macFUSE, FUSE, curl, Tauri, Rust — plus RSAF, CloudMount, fskit-s3, Mountit, mountpoint-s3, goofys and s3fs-fuse as research precedents. Full credits: **[THANKS.md](THANKS.md)**.
+rclone, WinFsp, macFUSE, FUSE/fuser, UniFFI, Tauri, Rust — plus RSAF, CloudMount, fskit-s3, Mountit, Nextcloud's DocumentsProvider, mountpoint-s3, goofys and s3fs-fuse as research precedents. Full credits: **[THANKS.md](THANKS.md)**.
 
 ## 📄 License
 

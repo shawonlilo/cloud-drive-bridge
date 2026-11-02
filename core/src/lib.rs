@@ -4,8 +4,11 @@
 //! - BYOK only. Secrets live in the OS keychain (desktop) or in memory
 //!   (mobile v0.1). They are NEVER written to a config file, never
 //!   logged, and `Secrets` intentionally has no `Debug` printing values.
-//! - S3 operations use the system `curl` with `--aws-sigv4` — curl ships
-//!   on Windows 10+, macOS and every Linux, and owns TLS for us.
+//! - S3 operations use a NATIVE in-process client (ureq + rustls +
+//!   hand-rolled AWS SigV4 signing) — identical on Windows, macOS,
+//!   Linux and Android. Nothing shells out for a core operation:
+//!   Android has no curl/PowerShell, as network-diagnostics learned
+//!   the hard way in its v0.3.2 post-mortem.
 //! - Mounting uses `rclone mount` with credentials passed ONLY through
 //!   `RCLONE_CONFIG_<NAME>_*` environment variables, so rclone never
 //!   writes a credential file either.
@@ -111,7 +114,7 @@ impl Provider {
         }
     }
     /// Endpoint template; `{region}` is substituted. Empty = AWS default
-    /// (curl reaches s3.<region>.amazonaws.com without an explicit host
+    /// (the native client reaches s3.<region>.amazonaws.com without an explicit host
     /// override — we still build the full URL ourselves).
     pub fn endpoint_template(&self) -> &'static str {
         match self {
@@ -413,84 +416,245 @@ impl Listing {
     pub fn total_size(&self) -> u64 { self.files.iter().map(|f| f.size).sum() }
 }
 
-// --------------------------------------------------------------------- curl
+// ------------------------------------------------------- native S3 client
+// ureq + rustls transport with hand-rolled SigV4 signing. One client,
+// every platform — Windows, macOS, Linux, Android — no subprocesses.
 
-pub fn curl_program() -> &'static str {
-    if cfg!(windows) { "curl.exe" } else { "curl" }
-}
-pub fn curl_available() -> bool {
-    Command::new(curl_program()).arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
-}
-
-/// The testable core of every S3 request: the exact curl argv (without
-/// the secret value — `--user` is added at run time from `Secrets`).
-pub fn curl_base_args(profile: &Profile) -> Vec<String> {
-    vec![
-        "-sS".into(),
-        "--aws-sigv4".into(),
-        format!("aws:amz:{}:s3", profile.region),
-    ]
+pub fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(data);
+    h.finalize().iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-pub struct CurlOutcome {
-    pub status: u32,
-    pub body: Vec<u8>,
-    pub headers: String,
+pub fn hmac_sha256(key: &[u8], msg: &[u8]) -> Vec<u8> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    let mut mac = <Hmac<Sha256>>::new_from_slice(key).expect("hmac accepts any key length");
+    mac.update(msg);
+    mac.finalize().into_bytes().to_vec()
 }
 
-fn run_curl(
+fn hex_bytes(data: &[u8]) -> String {
+    data.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// SigV4 key derivation chain: kDate -> kRegion -> kService -> kSigning.
+pub fn derive_signing_key(secret: &str, yyyymmdd: &str, region: &str, service: &str) -> Vec<u8> {
+    let k_date = hmac_sha256(format!("AWS4{}", secret).as_bytes(), yyyymmdd.as_bytes());
+    let k_region = hmac_sha256(&k_date, region.as_bytes());
+    let k_service = hmac_sha256(&k_region, service.as_bytes());
+    hmac_sha256(&k_service, b"aws4_request")
+}
+
+/// (amz_date "YYYYMMDDTHHMMSSZ", datestamp "YYYYMMDD") in UTC, computed
+/// from the system clock without a date crate (civil-from-days).
+pub fn utc_now() -> (String, String) {
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let days = (secs / 86400) as i64;
+    let tod = secs % 86400;
+    let (hh, mm, ss) = (tod / 3600, (tod % 3600) / 60, tod % 60);
+    // Howard Hinnant's civil_from_days
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+    let amz = format!("{:04}{:02}{:02}T{:02}{:02}{:02}Z", year, m, d, hh, mm, ss);
+    let stamp = format!("{:04}{:02}{:02}", year, m, d);
+    (amz, stamp)
+}
+
+pub struct ParsedUrl {
+    pub host: String,
+    pub path: String,
+    pub query: Option<String>,
+}
+pub fn parse_url(url: &str) -> ParsedUrl {
+    let rest = url.splitn(2, "://").nth(1).unwrap_or(url);
+    let (hostpath, query) = match rest.find('?') {
+        Some(i) => (&rest[..i], Some(rest[i + 1..].to_string())),
+        None => (rest, None),
+    };
+    let (host, path) = match hostpath.find('/') {
+        Some(i) => (&hostpath[..i], &hostpath[i..]),
+        None => (hostpath, "/"),
+    };
+    ParsedUrl {
+        host: host.to_string(),
+        path: if path.is_empty() { "/".into() } else { path.to_string() },
+        query,
+    }
+}
+
+pub fn canonical_query(query: &Option<String>) -> String {
+    let Some(q) = query else { return String::new() };
+    if q.is_empty() { return String::new(); }
+    let mut pairs: Vec<(&str, &str)> = q.split('&').map(|kv| {
+        let mut it = kv.splitn(2, '=');
+        (it.next().unwrap_or(""), it.next().unwrap_or(""))
+    }).collect();
+    pairs.sort();
+    pairs.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join("&")
+}
+
+/// Build the Authorization + x-amz-* headers for one request.
+/// `signed_extra` headers (e.g. range, x-amz-copy-source) are included
+/// in the signature. Returns headers to set on the ureq request.
+pub fn sigv4_headers(
     profile: &Profile,
     secrets: &Secrets,
-    extra: &[String],
+    method: &str,
     url: &str,
-) -> Result<CurlOutcome, String> {
-    if !curl_available() {
-        return Err("curl was not found on this system. Install curl (it ships with Windows 10+, macOS and most Linux distros) and try again.".into());
+    payload_hash: &str,
+    signed_extra: &[(String, String)],
+    at: &(String, String),
+) -> Vec<(String, String)> {
+    let (amz_date, datestamp) = at;
+    let u = parse_url(url);
+    let mut signed: Vec<(String, String)> = vec![
+        ("host".into(), u.host.clone()),
+        ("x-amz-content-sha256".into(), payload_hash.to_string()),
+        ("x-amz-date".into(), amz_date.clone()),
+    ];
+    for (k, v) in signed_extra {
+        signed.push((k.to_ascii_lowercase(), v.clone()));
     }
-    let mut args = curl_base_args(profile);
-    args.push("--user".into());
-    args.push(format!("{}:{}", secrets.access_key_id, secrets.secret_access_key));
-    args.push("-w".into());
-    args.push("\nCDB_HTTP_STATUS:%{http_code}".into());
-    args.push("-D".into());
-    args.push("-".into());
-    for a in extra { args.push(a.clone()); }
-    args.push(url.to_string());
-    let out = Command::new(curl_program())
-        .args(&args)
-        .output()
-        .map_err(|e| format!("could not run curl: {}", e))?;
-    let stdout = out.stdout;
-    // Headers arrive on stdout because of -D - ; body precedes the marker.
-    let text = String::from_utf8_lossy(&stdout).to_string();
-    let (head_body, status) = match text.rfind("\nCDB_HTTP_STATUS:") {
-        Some(i) => {
-            let st: u32 = text[i + 17..].trim().parse().unwrap_or(0);
-            (&text[..i], st)
-        }
-        None => (&text[..], 0),
-    };
-    // Split header block(s) from body: headers end at the first blank line
-    // that is followed by a non-header line; simplest robust split used by
-    // our callers: body = after the LAST "\r\n\r\n" before any XML/JSON.
-    let mut headers = String::new();
-    let mut body = head_body.as_bytes().to_vec();
-    if let Some(pos) = find_body_start(head_body) {
-        headers = head_body[..pos].to_string();
-        body = head_body[pos..].as_bytes().to_vec();
-    }
-    if !out.status.success() && status == 0 {
-        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        return Err(if err.is_empty() { "curl failed".into() } else { err });
-    }
-    Ok(CurlOutcome { status, body, headers })
+    signed.sort();
+    let signed_names = signed.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>().join(";");
+    let canonical_headers = signed.iter().map(|(k, v)| format!("{}:{}\n", k, v.trim())).collect::<String>();
+    let canonical = format!(
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        method, u.path, canonical_query(&u.query), canonical_headers, signed_names, payload_hash
+    );
+    let scope = format!("{}/{}/{}/aws4_request", datestamp, profile.region, "s3");
+    let string_to_sign = format!("AWS4-HMAC-SHA256\n{}\n{}\n{}", amz_date, scope, sha256_hex(canonical.as_bytes()));
+    let signing_key = derive_signing_key(&secrets.secret_access_key, datestamp, &profile.region, "s3");
+    let signature = hex_bytes(&hmac_sha256(&signing_key, string_to_sign.as_bytes()));
+    let authorization = format!(
+        "AWS4-HMAC-SHA256 Credential={}/{}, SignedHeaders={}, Signature={}",
+        secrets.access_key_id, scope, signed_names, signature
+    );
+    let mut out = vec![
+        ("authorization".to_string(), authorization),
+        ("x-amz-date".to_string(), amz_date.clone()),
+        ("x-amz-content-sha256".to_string(), payload_hash.to_string()),
+    ];
+    for (k, v) in signed_extra { out.push((k.clone(), v.clone())); }
+    out
 }
 
-fn find_body_start(s: &str) -> Option<usize> {
-    // curl -D - prints headers first; the body of our S3 calls starts
-    // with '<' (XML), '{' or is empty/binary for downloads (handled by -o).
-    let sep = s.find("\r\n\r\n").map(|i| i + 4).or_else(|| s.find("\n\n").map(|i| i + 2))?;
-    Some(sep)
+/// SigV4 presigned GET URL (query-string signing, UNSIGNED-PAYLOAD).
+pub fn presign_get(
+    profile: &Profile,
+    secrets: &Secrets,
+    key: &str,
+    expires_secs: u64,
+    at: &(String, String),
+) -> String {
+    let (amz_date, datestamp) = at;
+    let url = profile.object_url(key);
+    let u = parse_url(&url);
+    let scope = format!("{}/{}/{}/aws4_request", datestamp, profile.region, "s3");
+    let mut q: Vec<(String, String)> = vec![
+        ("X-Amz-Algorithm".into(), "AWS4-HMAC-SHA256".into()),
+        ("X-Amz-Credential".into(), format!("{}/{}", secrets.access_key_id, scope).replace('/', "%2F")),
+        ("X-Amz-Date".into(), amz_date.clone()),
+        ("X-Amz-Expires".into(), expires_secs.to_string()),
+        ("X-Amz-SignedHeaders".into(), "host".into()),
+    ];
+    q.sort();
+    let canonical_query = q.iter().map(|(k, v)| format!("{}={}", k, v)).collect::<Vec<_>>().join("&");
+    let canonical = format!("GET\n{}\n{}\nhost:{}\n\nhost\nUNSIGNED-PAYLOAD", u.path, canonical_query, u.host);
+    let string_to_sign = format!("AWS4-HMAC-SHA256\n{}\n{}\n{}", amz_date, scope, sha256_hex(canonical.as_bytes()));
+    let signing_key = derive_signing_key(&secrets.secret_access_key, datestamp, &profile.region, "s3");
+    let signature = hex_bytes(&hmac_sha256(&signing_key, string_to_sign.as_bytes()));
+    format!("{}?{}&X-Amz-Signature={}", url, canonical_query, signature)
+}
+
+pub struct HttpOutcome {
+    pub status: u32,
+    pub body: Vec<u8>,
+    pub etag: String,
+}
+
+/// One signed S3 request through the native client. Extra headers are
+/// signed. `body` is sent as-is (uploads read the file into memory —
+/// fine for v0.1 file sizes; streaming multipart is a roadmap item).
+pub fn s3_request(
+    profile: &Profile,
+    secrets: &Secrets,
+    method: &str,
+    url: &str,
+    extra: &[(String, String)],
+    body: Option<&[u8]>,
+) -> Result<HttpOutcome, String> {
+    let payload_hash = sha256_hex(body.unwrap_or(&[]));
+    let headers = sigv4_headers(profile, secrets, method, url, &payload_hash, extra, &utc_now());
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(300))
+        .build();
+    let mut req = agent.request(method, url);
+    for (k, v) in &headers { req = req.set(k, v); }
+    let result = match body {
+        Some(b) => req.send_bytes(b),
+        None => req.call(),
+    };
+    match result {
+        Ok(resp) => {
+            let status = resp.status();
+            let etag = resp.header("etag").unwrap_or_default().trim_matches('"').to_string();
+            let mut buf = Vec::new();
+            if method != "HEAD" {
+                use std::io::Read as _;
+                resp.into_reader().read_to_end(&mut buf).map_err(|e| e.to_string())?;
+            }
+            Ok(HttpOutcome { status: status as u32, body: buf, etag })
+        }
+        Err(ureq::Error::Status(status, resp)) => {
+            let etag = resp.header("etag").unwrap_or_default().trim_matches('"').to_string();
+            let text = resp.into_string().unwrap_or_default();
+            Ok(HttpOutcome { status: status as u32, body: text.into_bytes(), etag })
+        }
+        Err(ureq::Error::Transport(t)) => Err(format!("network error: {}", t)),
+    }
+}
+
+/// Signed GET streamed straight to a file (downloads don't sit in RAM).
+pub fn s3_download_to_file(
+    profile: &Profile,
+    secrets: &Secrets,
+    key: &str,
+    local_path: &str,
+) -> Result<(), String> {
+    let url = profile.object_url(key);
+    let headers = sigv4_headers(profile, secrets, "GET", &url, &sha256_hex(&[]), &[], &utc_now());
+    let agent = ureq::AgentBuilder::new()
+        .timeout(std::time::Duration::from_secs(600))
+        .build();
+    let mut req = agent.request("GET", &url);
+    for (k, v) in &headers { req = req.set(k, v); }
+    match req.call() {
+        Ok(resp) => {
+            if resp.status() != 200 {
+                return Err(format!("HTTP {}", resp.status()));
+            }
+            let mut f = std::fs::File::create(local_path).map_err(|e| e.to_string())?;
+            let mut reader = resp.into_reader();
+            std::io::copy(&mut reader, &mut f).map_err(|e| e.to_string())?;
+            Ok(())
+        }
+        Err(ureq::Error::Status(status, resp)) => {
+            let text = resp.into_string().unwrap_or_default();
+            Err(s3_error(status as u32, text.as_bytes()))
+        }
+        Err(ureq::Error::Transport(t)) => Err(format!("network error: {}", t)),
+    }
 }
 
 fn s3_error(status: u32, body: &[u8]) -> String {
@@ -500,7 +664,7 @@ fn s3_error(status: u32, body: &[u8]) -> String {
     if msg.is_empty() { code } else { format!("{}: {}", code, msg) }
 }
 
-fn expect_ok(o: &CurlOutcome) -> Result<(), String> {
+fn expect_ok(o: &HttpOutcome) -> Result<(), String> {
     if (200..300).contains(&o.status) { Ok(()) } else { Err(s3_error(o.status, &o.body)) }
 }
 
@@ -509,7 +673,7 @@ fn expect_ok(o: &CurlOutcome) -> Result<(), String> {
 /// HEAD the bucket: 200 = reachable + authorized, 404 = no such bucket,
 /// 403 = bad credentials / no permission.
 pub fn test_connection(profile: &Profile, secrets: &Secrets) -> Result<String, String> {
-    let o = run_curl(profile, secrets, &["-I".into()], &profile.bucket_url())?;
+    let o = s3_request(profile, secrets, "HEAD", &profile.bucket_url(), &[], None)?;
     match o.status {
         200 => Ok(format!("Connected — bucket '{}' is reachable and your keys are accepted.", profile.bucket)),
         404 => Err(format!("Bucket '{}' was not found at this endpoint. Check the bucket name, provider and region.", profile.bucket)),
@@ -587,7 +751,7 @@ pub fn list_objects(
     if !token.is_empty() {
         q.push_str(&format!("&continuation-token={}", encode_key(token)));
     }
-    let o = run_curl(profile, secrets, &[], &q)?;
+    let o = s3_request(profile, secrets, "GET", &q, &[], None)?;
     expect_ok(&o)?;
     let xml = String::from_utf8_lossy(&o.body).to_string();
     Ok(parse_listing(&xml, prefix))
@@ -600,7 +764,7 @@ pub fn list_all(profile: &Profile, secrets: &Secrets, prefix: &str) -> Result<Ve
     loop {
         let mut q = format!("{}?list-type=2&prefix={}", profile.bucket_url(), encode_key(prefix));
         if !token.is_empty() { q.push_str(&format!("&continuation-token={}", encode_key(&token))); }
-        let o = run_curl(profile, secrets, &[], &q)?;
+        let o = s3_request(profile, secrets, "GET", &q, &[], None)?;
         expect_ok(&o)?;
         let xml = String::from_utf8_lossy(&o.body).to_string();
         let l = parse_listing(&xml, prefix);
@@ -619,12 +783,7 @@ pub fn bucket_stats(profile: &Profile, secrets: &Secrets) -> Result<(u64, u64), 
 }
 
 pub fn download_file(profile: &Profile, secrets: &Secrets, key: &str, local_path: &str) -> Result<(), String> {
-    let o = run_curl(
-        profile, secrets,
-        &["-o".into(), local_path.into()],
-        &profile.object_url(key),
-    )?;
-    expect_ok(&o).map_err(|e| {
+    s3_download_to_file(profile, secrets, key, local_path).map_err(|e| {
         let _ = std::fs::remove_file(local_path);
         e
     })
@@ -633,17 +792,38 @@ pub fn download_file(profile: &Profile, secrets: &Secrets, key: &str, local_path
 /// Upload one file; returns the ETag. Checksum note: a plain (dashless)
 /// ETag is the MD5 for single-part uploads and is compared here.
 pub fn upload_file(profile: &Profile, secrets: &Secrets, local_path: &str, key: &str) -> Result<String, String> {
-    let o = run_curl(
-        profile, secrets,
-        &["-T".into(), local_path.into()],
-        &profile.object_url(key),
-    )?;
+    let bytes = std::fs::read(local_path).map_err(|e| format!("read {}: {}", local_path, e))?;
+    let o = s3_request(profile, secrets, "PUT", &profile.object_url(key), &[], Some(&bytes))?;
     expect_ok(&o)?;
-    let etag = o.headers.lines()
-        .find(|l| l.to_ascii_lowercase().starts_with("etag:"))
-        .map(|l| l[5..].trim().trim_matches('"').to_string())
-        .unwrap_or_default();
-    Ok(etag)
+    Ok(o.etag)
+}
+
+/// HEAD one object: size / modified / etag / storage class.
+pub fn stat_object(profile: &Profile, secrets: &Secrets, key: &str) -> Result<S3Object, String> {
+    let url = profile.object_url(key);
+    let headers = sigv4_headers(profile, secrets, "HEAD", &url, &sha256_hex(&[]), &[], &utc_now());
+    let agent = ureq::AgentBuilder::new().timeout(std::time::Duration::from_secs(60)).build();
+    let mut req = agent.request("HEAD", &url);
+    for (k, v) in &headers { req = req.set(k, v); }
+    match req.call() {
+        Ok(resp) => Ok(S3Object {
+            key: key.to_string(),
+            size: resp.header("content-length").and_then(|v| v.parse().ok()).unwrap_or(0),
+            last_modified: resp.header("last-modified").unwrap_or_default().to_string(),
+            etag: resp.header("etag").unwrap_or_default().trim_matches('"').to_string(),
+            storage_class: resp.header("x-amz-storage-class").unwrap_or("STANDARD").to_string(),
+            is_folder: key.ends_with('/'),
+        }),
+        Err(ureq::Error::Status(status, _)) => Err(format!("HTTP {}", status)),
+        Err(ureq::Error::Transport(t)) => Err(format!("network error: {}", t)),
+    }
+}
+
+/// Read a byte range of an object (Range header is signed).
+pub fn read_range(profile: &Profile, secrets: &Secrets, key: &str, start: u64, len: u64) -> Result<Vec<u8>, String> {
+    let extra = vec![("range".to_string(), format!("bytes={}-{}", start, start + len.saturating_sub(1)))];
+    let o = s3_request(profile, secrets, "GET", &profile.object_url(key), &extra, None)?;
+    if o.status == 206 || o.status == 200 { Ok(o.body) } else { Err(s3_error(o.status, &o.body)) }
 }
 
 pub fn verify_upload(local_path: &str, etag: &str) -> String {
@@ -661,17 +841,14 @@ pub fn verify_upload(local_path: &str, etag: &str) -> String {
 }
 
 pub fn delete_object(profile: &Profile, secrets: &Secrets, key: &str) -> Result<(), String> {
-    let o = run_curl(profile, secrets, &["-X".into(), "DELETE".into()], &profile.object_url(key))?;
+    let o = s3_request(profile, secrets, "DELETE", &profile.object_url(key), &[], None)?;
     expect_ok(&o)
 }
 
 pub fn create_folder(profile: &Profile, secrets: &Secrets, prefix: &str) -> Result<(), String> {
     let key = if prefix.ends_with('/') { prefix.to_string() } else { format!("{}/", prefix) };
-    let o = run_curl(
-        profile, secrets,
-        &["-X".into(), "PUT".into(), "-H".into(), "Content-Length: 0".into()],
-        &profile.object_url(&key),
-    )?;
+    let empty: &[u8] = &[];
+    let o = s3_request(profile, secrets, "PUT", &profile.object_url(&key), &[], Some(empty))?;
     expect_ok(&o)
 }
 
@@ -679,13 +856,59 @@ pub fn create_folder(profile: &Profile, secrets: &Secrets, prefix: &str) -> Resu
 /// native rename).
 pub fn rename_object(profile: &Profile, secrets: &Secrets, from: &str, to: &str) -> Result<(), String> {
     let copy_source = format!("/{}/{}", profile.bucket, encode_key(from));
-    let o = run_curl(
-        profile, secrets,
-        &["-X".into(), "PUT".into(), "-H".into(), format!("x-amz-copy-source: {}", copy_source)],
-        &profile.object_url(to),
-    )?;
+    let extra = vec![("x-amz-copy-source".to_string(), copy_source)];
+    let empty: &[u8] = &[];
+    let o = s3_request(profile, secrets, "PUT", &profile.object_url(to), &extra, Some(empty))?;
     expect_ok(&o)?;
     delete_object(profile, secrets, from)
+}
+
+// ---------------------------------------------------------- Provider trait
+// The ONE storage interface every native shell calls — Tauri app,
+// cdb-fuse (Linux), cdb-ffi (Kotlin/Swift), the future File Provider
+// and CfAPI shells. No platform duplicates S3 logic.
+
+pub trait StorageProvider {
+    fn list(&self, prefix: &str) -> Result<Listing, String>;
+    fn stat(&self, key: &str) -> Result<S3Object, String>;
+    fn read_range(&self, key: &str, start: u64, len: u64) -> Result<Vec<u8>, String>;
+    fn write(&self, key: &str, local_path: &str) -> Result<String, String>;
+    fn delete(&self, key: &str) -> Result<(), String>;
+    fn rename(&self, from: &str, to: &str) -> Result<(), String>;
+    fn presign(&self, key: &str, expires_secs: u64) -> Result<String, String>;
+}
+
+pub struct S3Provider {
+    pub profile: Profile,
+    secrets: Secrets,
+}
+impl S3Provider {
+    pub fn new(profile: Profile, secrets: Secrets) -> S3Provider {
+        S3Provider { profile, secrets }
+    }
+}
+impl StorageProvider for S3Provider {
+    fn list(&self, prefix: &str) -> Result<Listing, String> {
+        list_objects(&self.profile, &self.secrets, prefix, "")
+    }
+    fn stat(&self, key: &str) -> Result<S3Object, String> {
+        stat_object(&self.profile, &self.secrets, key)
+    }
+    fn read_range(&self, key: &str, start: u64, len: u64) -> Result<Vec<u8>, String> {
+        read_range(&self.profile, &self.secrets, key, start, len)
+    }
+    fn write(&self, key: &str, local_path: &str) -> Result<String, String> {
+        upload_file(&self.profile, &self.secrets, local_path, key)
+    }
+    fn delete(&self, key: &str) -> Result<(), String> {
+        delete_object(&self.profile, &self.secrets, key)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), String> {
+        rename_object(&self.profile, &self.secrets, from, to)
+    }
+    fn presign(&self, key: &str, expires_secs: u64) -> Result<String, String> {
+        Ok(presign_get(&self.profile, &self.secrets, key, expires_secs, &utc_now()))
+    }
 }
 
 pub fn now_nanos() -> u128 {
@@ -1114,17 +1337,16 @@ pub fn build_link_args(profile: &Profile, key: &str, expiry: &str) -> Vec<String
     vec!["link".into(), remote_path(profile, key), "--expire".into(), expiry.into()]
 }
 pub fn share_link(profile: &Profile, secrets: &Secrets, key: &str, preset: &str) -> Result<String, String> {
-    if !rclone_available() { return Err("rclone was not found — share links use rclone link.".into()); }
-    let exp = expiry_arg(preset)?;
-    let out = Command::new(rclone_program())
-        .args(build_link_args(profile, key, exp))
-        .envs(rclone_env(profile, secrets))
-        .output().map_err(|e| e.to_string())?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
-    }
+    // Native SigV4 presigned URL — no rclone, no subprocess, works on
+    // Android too. (build_link_args remains for the rclone-mount
+    // context where a public link is requested through the remote.)
+    let secs = match preset {
+        "1h" => 3600,
+        "24h" => 86400,
+        "7d" => 604800,
+        _ => return Err("expiry must be 1h, 24h or 7d".into()),
+    };
+    Ok(presign_get(profile, secrets, key, secs, &utc_now()))
 }
 
 /// Offline pin registry: JSON file of pinned keys (names only, no
@@ -1458,11 +1680,58 @@ mod tests {
     }
 
     #[test]
-    fn curl_missing_and_args_shape() {
-        let args = curl_base_args(&aws_profile());
-        assert!(args.iter().any(|a| a == "--aws-sigv4"));
-        assert!(args.iter().any(|a| a == "aws:amz:eu-west-1:s3"));
-        assert!(!args.join(" ").contains("secret")); // secrets never baked into base args
+    fn sigv4_signing_key_matches_aws_docs_vector() {
+        // Worked example straight from the AWS SigV4 documentation:
+        // secret wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY, date 20120215,
+        // region us-east-1, service iam.
+        let key = derive_signing_key("wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", "20120215", "us-east-1", "iam");
+        assert_eq!(hex_bytes(&key), "f4780e2d9f65fa895f9c67b32ce1baf0b0d8a43505a000a1a9e090d414db404d");
+    }
+
+    #[test]
+    fn sigv4_headers_are_deterministic_and_hide_secret() {
+        let at = ("20261102T120000Z".to_string(), "20261102".to_string());
+        let h = sigv4_headers(&aws_profile(), &secrets(), "GET", "https://s3.eu-west-1.amazonaws.com/my-bucket?list-type=2&prefix=", &sha256_hex(&[]), &[], &at);
+        let auth = h.iter().find(|(k, _)| k == "authorization").unwrap().1.clone();
+        assert!(auth.starts_with("AWS4-HMAC-SHA256 Credential=test-key-id/20261102/eu-west-1/s3/aws4_request"));
+        assert!(auth.contains("SignedHeaders=host;x-amz-content-sha256;x-amz-date"));
+        assert!(!auth.contains("test-secret-value"));
+        let h2 = sigv4_headers(&aws_profile(), &secrets(), "GET", "https://s3.eu-west-1.amazonaws.com/my-bucket?list-type=2&prefix=", &sha256_hex(&[]), &[], &at);
+        assert_eq!(h, h2); // deterministic at a fixed timestamp
+    }
+
+    #[test]
+    fn presign_url_shape() {
+        let at = ("20261102T120000Z".to_string(), "20261102".to_string());
+        let url = presign_get(&aws_profile(), &secrets(), "photos/cat.jpg", 86400, &at);
+        assert!(url.contains("X-Amz-Algorithm=AWS4-HMAC-SHA256"));
+        assert!(url.contains("X-Amz-Expires=86400"));
+        assert!(url.contains("X-Amz-Signature="));
+        assert!(!url.contains("test-secret-value"));
+    }
+
+    #[test]
+    fn native_client_lists_against_local_http_server() {
+        // A one-shot local HTTP "S3" — proves the native ureq+SigV4
+        // client end-to-end with no subprocess and no network.
+        use std::io::{Read as _, Write as _};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 8192];
+            let n = sock.read(&mut buf).unwrap();
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            assert!(req.to_ascii_lowercase().contains("authorization: aws4-hmac-sha256"), "request must be SigV4-signed");
+            let body = LIST_XML;
+            let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: application/xml\r\nContent-Length: {}\r\nETag: \"x\"\r\n\r\n{}", body.len(), body);
+            sock.write_all(resp.as_bytes()).unwrap();
+        });
+        let p = Profile::new("local", Provider::Minio, "my-bucket", "us-east-1", &format!("http://127.0.0.1:{}", port)).unwrap();
+        let l = list_objects(&p, &secrets(), "photos/", "").unwrap();
+        assert_eq!(l.files.len(), 2);
+        assert_eq!(l.folders.len(), 2);
+        server.join().unwrap();
     }
 
     #[test]

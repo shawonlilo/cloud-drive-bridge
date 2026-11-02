@@ -15,7 +15,11 @@ Cloud Drive Bridge stands on excellent open work. Full credit, always:
 | [mountpoint-s3](https://github.com/awslabs/mountpoint-s3) by AWS | S3-as-filesystem semantics research | Apache-2.0 (reference only) |
 | [goofys](https://github.com/kahing/goofys) | High-performance S3 filesystem design lessons | Apache-2.0 (reference only) |
 | [s3fs-fuse](https://github.com/s3fs-fuse/s3fs-fuse) | The original S3 FUSE filesystem — a decade of edge cases documented | GPLv2 (reference only) |
-| [curl](https://github.com/curl/curl) | Our S3 transport (`--aws-sigv4`) — ships on Windows 10+, macOS, Linux | curl license |
+| [ureq](https://github.com/algesten/ureq) + rustls | Our native in-process HTTPS transport (the network-diagnostics v0.3.2 lesson: never shell out) | MIT/Apache-2.0 |
+| [UniFFI](https://github.com/mozilla/uniffi-rs) by Mozilla | Kotlin + Swift bindings generated from cdb-core for the native shells | MPL-2.0 |
+| [cloud-filter](https://github.com/) (CfAPI) | Windows Cloud Files API wrapper — the native Windows shell's foundation | (reference + planned dependency) |
+| [fuser](https://github.com/cberner/fuser) | The Rust FUSE library under cdb-fuse, our native Linux engine | MIT |
+| Nextcloud Android | DocumentsProvider design precedent for cloud files in the Android picker | (reference only) |
 | [Tauri](https://github.com/tauri-apps/tauri) | The app shell for desktop + Android | MIT/Apache-2.0 |
 | [Rust](https://www.rust-lang.org/) | The language the whole engine is written in | MIT/Apache-2.0 |
 | taste-skill by Leonxlnx | Design direction system | (pattern library) |

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0 — 2026-11-02 — NATIVE release 🌉
+
+The "not root way — native way" release:
+
+- **Native S3 client, in-process:** ureq + rustls + hand-rolled AWS SigV4 (verified against the AWS documentation signing vector + a live local-HTTP integration test). The v0.1 `curl --aws-sigv4` subprocess engine is **gone** — it was dead on Android, exactly as network-diagnostics v0.3.2 documented. One client now runs identically on Windows, macOS, Linux and Android.
+- **`StorageProvider` trait** in cdb-core (list · stat · read_range · write · delete · rename · presign) — every shell calls the one core; share links are native SigV4 presigned URLs (no rclone).
+- **`cdb-ffi`** — UniFFI crate generating Kotlin + Swift bindings (`CdbSession`) over the core; compiles for the host target.
+- **`cdb-fuse`** — our own Linux FUSE filesystem (fuser) implementing the trait: readdir/lookup/getattr/read via signed range requests, unprivileged via fusermount3. Compiles; read path. Writable FUSE = first v0.3 item; rclone remains the writable mount.
+- **`cdb-windows-native`** — CfAPI (Cloud Files API) design + compilable callback contract (sync-root identity, FETCH_DATA contract); `native/` holds the CfAPI, File Provider and Android DocumentsProvider designs, incl. the Kotlin SAF provider scaffold (not registered — v0.3).
+- **NATIVE.md** — the full no-root architecture: CfAPI (Windows), File Provider (Apple), DocumentsProvider (Android), FUSE (Linux).
+
 ## 0.1.0 — 2026-11-02 — First release 🌉
 
 **Cloud Drive Bridge** — mount any S3-compatible bucket as a local drive, free and open source.
