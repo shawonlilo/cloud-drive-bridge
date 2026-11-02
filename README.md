@@ -20,6 +20,21 @@
 
 ---
 
+> ## 📦 Current releases
+>
+> **Current CLI release: [v0.4.1](https://github.com/shawonlilo/cloud-drive-bridge/releases/tag/v0.4.1)** — the complete, verified CLI asset set (end-to-end proven against a real MinIO server):
+>
+> | Asset | Size |
+> |---|---|
+> | `cdb-windows-x64.exe` | 2,417,152 B |
+> | `cdb-macos-arm64` | 2,374,144 B |
+> | `cdb-macos-x64` | 2,595,080 B |
+> | `cdb-linux-x64` | 2,833,432 B |
+> | `cdb-fuse-linux-x64` | 2,825,376 B |
+> | `SHA256SUMS.txt` | 413 B |
+>
+> **Current GUI release: [v0.5.0](https://github.com/shawonlilo/cloud-drive-bridge/releases/tag/v0.5.0)** — the V1 Essential Light desktop app (same proven native core), shipped after v0.4.1. Older GUI-era releases (v0.1.0–v0.2.1) are superseded and broken — do not use them.
+
 > **v0.5.0 — the GUI is back, in V1 Essential Light** (the owner's suite-wide design pick from the approved Stitch set): the same proven engine, now with the warm off-white desktop app + Android browse/transfer app. The CLI below remains the verified core — the GUI wraps it, and the MinIO end-to-end proof still gates every release.
 
 ## ✨ Features
