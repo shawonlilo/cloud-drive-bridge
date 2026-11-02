@@ -200,14 +200,14 @@ dependencies = [
 
 [[package]]
 name = "cdb"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "cdb-core",
 ]
 
 [[package]]
 name = "cdb-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "hmac",
  "keyring",
@@ -217,7 +217,7 @@ dependencies = [
 
 [[package]]
 name = "cdb-ffi"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "cdb-core",
  "uniffi",
@@ -225,7 +225,7 @@ dependencies = [
 
 [[package]]
 name = "cdb-fuse"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "cdb-core",
  "fuser",
@@ -234,7 +234,7 @@ dependencies = [
 
 [[package]]
 name = "cdb-windows-native"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "cdb-core",
 ]

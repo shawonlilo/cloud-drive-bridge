@@ -70,10 +70,10 @@ Grab the latest release for your platform:
 
 | Platform | File |
 |---|---|
-| Windows | `Cloud.Drive.Bridge_0.2.0_x64-setup.exe` or `.msi` |
-| macOS (Apple Silicon) | `Cloud.Drive.Bridge_0.2.0_aarch64.dmg` |
-| macOS (Intel) | `Cloud.Drive.Bridge_0.2.0_x64.dmg` |
-| Linux | `Cloud.Drive.Bridge_0.2.0_amd64.AppImage` or `.deb` (Debian/Ubuntu) |
+| Windows | `Cloud.Drive.Bridge_0.2.1_x64-setup.exe` or `.msi` |
+| macOS (Apple Silicon) | `Cloud.Drive.Bridge_0.2.1_aarch64.dmg` |
+| macOS (Intel) | `Cloud.Drive.Bridge_0.2.1_x64.dmg` |
+| Linux | `Cloud.Drive.Bridge_0.2.1_amd64.AppImage` or `.deb` (Debian/Ubuntu) |
 | Android | `cloud-drive-bridge-android.apk` (CI-signed, sideload) |
 | CLI only | `cdb-windows-x64.exe` · `cdb-macos-arm64` · `cdb-linux-x64` |
 | Docker | `docker build -t cloud-drive-bridge .` |

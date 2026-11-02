@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 — 2026-11-02
+
+- Fix: v0.2.0's desktop bundle filenames carried the old 0.1.0 version string (a minified tauri.conf.json escaped the version bump). Same native code as 0.2.0, correctly stamped. Supersedes v0.2.0.
+
 ## 0.2.0 — 2026-11-02 — NATIVE release 🌉
 
 The "not root way — native way" release:
